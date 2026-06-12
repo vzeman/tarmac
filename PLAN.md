@@ -70,6 +70,14 @@ SupCon fine-tune of last N blocks (MPS-friendly: ViT-B, batch 64 w/ grad accumul
 ### Phase 6 — Evaluation report & iteration
 Final metrics doc (`EVALUATION.md`), comparison table frozen vs fine-tuned, error analysis, next steps (more data, ViT-L, distress-specific heads).
 
+### Phase 7 — Crack & defect detection (user-requested 2026-06-12)
+1. Download + unify CQU-BPDD (60k images, 7 distress types + normal) and CRACK500/GAPs (pixel-wise crack masks) into the manifest with a `defects` multi-label column.
+2. **Level 1 — defect head:** multi-label classifier (crack types, pothole, patch, ravelling) on frozen active-backbone embeddings, applied per tile at inference → coarse defect map per frame.
+3. **Level 2 — defect-aware embeddings:** extend SupCon composite labels with distress labels; re-fine-tune so defect types form their own cosine-searchable clusters.
+4. **Level 3 — crack heatmaps:** linear segmentation head on DINOv3 dense patch tokens trained on CRACK500 masks → crack overlay images in reports (DINOv3 excels at dense tasks with frozen backbone).
+5. Inference/report/UI extended: per-tile defect probabilities, defect overlay rendering, defect filters in scatter plot.
+Order: Levels 1+2 right after Phase 5 MVP; Level 3 afterwards.
+
 ## Management protocol
 - Each phase executed by **local codex CLI** (`codex exec`), one detailed task prompt per phase; Claude reviews diffs/outputs, runs smoke tests, iterates with codex on failures.
 - Definition of done per phase: code runs end-to-end via documented command, produces artifact (manifest/embeddings/metrics/report), reviewed by Claude.
