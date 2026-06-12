@@ -20,6 +20,7 @@ dependencies = [
   "rich",
   "plotly",
   "streamlit",
+  "joblib",
   "requests",
   "tqdm",
   "matplotlib>=3.11.0",

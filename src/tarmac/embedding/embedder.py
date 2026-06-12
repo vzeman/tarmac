@@ -107,12 +107,13 @@ class HFBackboneEmbedder:
         allow_fallback: bool = True,
         attn_implementation: str | None = None,
         move_to_device: bool = True,
+        device_name: str = "auto",
     ) -> None:
         checkpoint = _load_checkpoint_metadata(checkpoint_path)
         if checkpoint is not None and checkpoint.get("model_name"):
             model_name = str(checkpoint["model_name"])
         self.requested_model = model_name
-        self.device = _preferred_device()
+        self.device = _preferred_device(device_name)
         self.processor, self.model, self.model_name = self._load_with_fallback(
             model_name,
             allow_fallback=allow_fallback,
@@ -294,7 +295,9 @@ def _processor_input_size(processor: Any) -> int:
     return 224
 
 
-def _preferred_device() -> torch.device:
+def _preferred_device(device_name: str = "auto") -> torch.device:
+    if device_name != "auto":
+        return torch.device(device_name)
     if torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")

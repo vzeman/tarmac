@@ -2153,6 +2153,7 @@ source = { editable = "." }
 dependencies = [
     { name = "faiss-cpu" },
     { name = "hdbscan" },
+    { name = "joblib" },
     { name = "matplotlib" },
     { name = "pandas" },
     { name = "pillow" },
@@ -2175,6 +2176,7 @@ dependencies = [
 requires-dist = [
     { name = "faiss-cpu" },
     { name = "hdbscan" },
+    { name = "joblib" },
     { name = "matplotlib", specifier = ">=3.11.0" },
     { name = "pandas" },
     { name = "pillow" },

@@ -251,18 +251,61 @@ def evaluate(
 
 
 @app.command()
-def analyze() -> None:
-    _stub("analyze")
+def analyze(
+    path: Path = typer.Argument(..., help="Photo, directory of photos, or video to analyze."),
+    out: Path | None = typer.Option(None, "--out", "-o", help="Output run directory."),
+    fps: float = typer.Option(2.0, "--fps", help="Video frame extraction rate."),
+    k: int = typer.Option(10, "--k", help="Nearest neighbors per tile."),
+    non_road_threshold: float | None = typer.Option(
+        None,
+        "--non-road-threshold",
+        help="Mean cosine threshold below which a tile is marked non-road. Default calibrates from val tiles, capped at 0.45.",
+    ),
+    batch_size: int = typer.Option(16, "--batch-size", help="Embedding batch size."),
+    device: str = typer.Option("cpu", "--device", help="Inference device: cpu, mps, or auto."),
+) -> None:
+    """Analyze a photo, image directory, or video."""
+    from tarmac.inference.analyze import analyze_path, print_summary
+
+    summary = analyze_path(
+        input_path=path,
+        out_dir=out,
+        fps=fps,
+        k=k,
+        non_road_threshold=non_road_threshold,
+        batch_size=batch_size,
+        device=device,
+    )
+    print_summary(summary, console)
 
 
 @app.command()
-def report() -> None:
-    _stub("report")
+def report(
+    run_dir: Path = typer.Argument(..., help="Run directory produced by `tarmac analyze`."),
+    output: Path | None = typer.Option(None, "--output", "-o", help="HTML output path."),
+) -> None:
+    """Build a self-contained HTML report for an analysis run."""
+    from tarmac.report.html import build_html_report
+
+    report_path = build_html_report(run_dir=run_dir, output=output)
+    console.print(f"Report written to {report_path}")
 
 
 @app.command()
-def ui() -> None:
-    _stub("ui")
+def ui(
+    port: int = typer.Option(8501, "--port", help="Streamlit server port."),
+) -> None:
+    """Start the Streamlit UI."""
+    import subprocess
+
+    cmd = [
+        "streamlit",
+        "run",
+        "src/tarmac/ui/app.py",
+        "--server.port",
+        str(port),
+    ]
+    raise typer.Exit(subprocess.call(cmd))
 
 
 def _suffix_path(path: Path, suffix: str | None) -> Path:
