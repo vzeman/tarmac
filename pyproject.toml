@@ -1,0 +1,35 @@
+[project]
+name = "tarmac"
+version = "0.1.0"
+description = "Road surface quality analysis with vision embeddings."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "torch",
+  "torchvision",
+  "timm",
+  "transformers",
+  "scikit-learn",
+  "hdbscan",
+  "umap-learn",
+  "faiss-cpu",
+  "pandas",
+  "pyarrow",
+  "pillow",
+  "typer",
+  "rich",
+  "plotly",
+  "streamlit",
+  "requests",
+  "tqdm",
+]
+
+[project.scripts]
+tarmac = "tarmac.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
