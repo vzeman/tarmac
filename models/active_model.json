@@ -1,0 +1,4 @@
+{
+  "backbone": "dinov3",
+  "checkpoint": "models/finetuned_dinov3.pt"
+}

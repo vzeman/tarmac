@@ -77,6 +77,100 @@ def run_evaluation(
     return metrics
 
 
+def write_phase3_comparison_report(
+    frozen_metrics_path: Path,
+    finetuned_metrics_path: Path,
+    report_path: Path,
+) -> dict[str, object]:
+    frozen = _read_json(frozen_metrics_path)
+    finetuned = _read_json(finetuned_metrics_path)
+    if not frozen or not finetuned:
+        raise RuntimeError("Both frozen and fine-tuned metrics are required for the Phase 3 report.")
+
+    frozen_quality_f1 = _metric(frozen, "knn", "quality", "val_test", "macro_f1")
+    finetuned_quality_f1 = _metric(finetuned, "knn", "quality", "val_test", "macro_f1")
+    frozen_silhouette = _metric(frozen, "silhouette", "surface_type_quality")
+    finetuned_silhouette = _metric(finetuned, "silhouette", "surface_type_quality")
+    quality_pass = finetuned_quality_f1 > frozen_quality_f1
+    silhouette_pass = finetuned_silhouette > frozen_silhouette
+    gate_pass = quality_pass and silhouette_pass
+
+    lines = [
+        "# Phase 3 Supervised-Contrastive Fine-Tuning",
+        "",
+        f"Frozen backbone: `{frozen.get('backbone')}` (`{frozen.get('model_name')}`).",
+        f"Fine-tuned backbone: `{finetuned.get('backbone')}` (`{finetuned.get('model_name')}`).",
+        "",
+        "## kNN Metrics",
+        "",
+        "| Target | Split | Metric | Frozen | Fine-tuned | Delta |",
+        "|---|---|---|---:|---:|---:|",
+    ]
+    for target in ["surface_type", "quality"]:
+        for split in ["val", "test", "val_test"]:
+            metric_names = ["accuracy", "macro_f1"]
+            if target == "quality":
+                metric_names.extend(["mae", "off_by_one_accuracy"])
+            for metric_name in metric_names:
+                frozen_value = _metric(frozen, "knn", target, split, metric_name)
+                finetuned_value = _metric(finetuned, "knn", target, split, metric_name)
+                lines.append(
+                    f"| {target} | {split} | {metric_name} | "
+                    f"{frozen_value:.4f} | {finetuned_value:.4f} | {finetuned_value - frozen_value:+.4f} |"
+                )
+
+    lines.extend(
+        [
+            "",
+            "## Embedding And Cluster Metrics",
+            "",
+            "| Metric | Frozen | Fine-tuned | Delta |",
+            "|---|---:|---:|---:|",
+        ]
+    )
+    metric_rows = [
+        ("Silhouette vs surface_type", ("silhouette", "surface_type")),
+        ("Silhouette vs surface_type + quality", ("silhouette", "surface_type_quality")),
+        ("k-means cluster purity: surface_type", ("cluster_purity", "surface_type")),
+        ("k-means cluster purity: quality", ("cluster_purity", "quality")),
+        ("k-means cluster purity: surface_type + quality", ("cluster_purity", "surface_type_quality")),
+    ]
+    for label, path in metric_rows:
+        frozen_value = _metric(frozen, *path)
+        finetuned_value = _metric(finetuned, *path)
+        lines.append(
+            f"| {label} | {frozen_value:.4f} | {finetuned_value:.4f} | {finetuned_value - frozen_value:+.4f} |"
+        )
+
+    verdict = "PASSED" if gate_pass else "FAILED"
+    lines.extend(
+        [
+            "",
+            "## Acceptance Gate",
+            "",
+            f"Gate verdict: **{verdict}**.",
+            "",
+            "| Requirement | Frozen | Fine-tuned | Passed |",
+            "|---|---:|---:|---:|",
+            f"| val+test quality kNN macro-F1 improves | {frozen_quality_f1:.4f} | {finetuned_quality_f1:.4f} | {_yes_no(quality_pass)} |",
+            f"| silhouette(surface_type + quality) improves | {frozen_silhouette:.4f} | {finetuned_silhouette:.4f} | {_yes_no(silhouette_pass)} |",
+            "",
+            "Artifacts: `reports/phase3_metrics.json`, `reports/umap_scatter_finetuned.html`, `reports/umap_quality_finetuned.png`.",
+        ]
+    )
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return {
+        "gate_pass": gate_pass,
+        "quality_pass": quality_pass,
+        "silhouette_pass": silhouette_pass,
+        "frozen_quality_val_test_macro_f1": frozen_quality_f1,
+        "finetuned_quality_val_test_macro_f1": finetuned_quality_f1,
+        "frozen_surface_type_quality_silhouette": frozen_silhouette,
+        "finetuned_surface_type_quality_silhouette": finetuned_silhouette,
+    }
+
+
 def _knn_metrics(df: pd.DataFrame, embeddings: np.ndarray, target: str) -> dict[str, object]:
     train_mask = df["split"].to_numpy() == "train"
     classifier = KNeighborsClassifier(n_neighbors=10, metric="cosine", weights="distance")
@@ -225,3 +319,14 @@ def _fmt_optional(value: object) -> str:
     if value is None:
         return "-"
     return f"{float(value):.4f}"
+
+
+def _metric(metrics: dict[str, object], *path: str) -> float:
+    value: object = metrics
+    for key in path:
+        value = value[key]  # type: ignore[index]
+    return float(value)
+
+
+def _yes_no(value: bool) -> str:
+    return "yes" if value else "no"

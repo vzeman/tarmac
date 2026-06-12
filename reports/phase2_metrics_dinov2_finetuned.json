@@ -1,0 +1,52 @@
+{
+  "requested_model": "facebook/dinov2-base",
+  "backbone": "dinov2",
+  "model_name": "facebook/dinov2-base",
+  "device": "mps",
+  "chosen_k": 5,
+  "knn": {
+    "surface_type": {
+      "val": {
+        "accuracy": 0.9536082474226805,
+        "macro_f1": 0.9278309440002331
+      },
+      "test": {
+        "accuracy": 0.9536082474226805,
+        "macro_f1": 0.8527402462634488
+      },
+      "val_test": {
+        "accuracy": 0.9536082474226805,
+        "macro_f1": 0.8951312215878675
+      }
+    },
+    "quality": {
+      "val": {
+        "accuracy": 0.654639175257732,
+        "macro_f1": 0.6300081851591295,
+        "mae": 0.35051546391752575,
+        "off_by_one_accuracy": 0.9948453608247423
+      },
+      "test": {
+        "accuracy": 0.6881443298969072,
+        "macro_f1": 0.6597364059025672,
+        "mae": 0.31443298969072164,
+        "off_by_one_accuracy": 0.9974226804123711
+      },
+      "val_test": {
+        "accuracy": 0.6713917525773195,
+        "macro_f1": 0.6465883018283483,
+        "mae": 0.3324742268041237,
+        "off_by_one_accuracy": 0.9961340206185567
+      }
+    }
+  },
+  "silhouette": {
+    "surface_type": 0.607283890247345,
+    "surface_type_quality": 0.06940809637308121
+  },
+  "cluster_purity": {
+    "surface_type": 0.9470510852883139,
+    "quality": 0.4630563472922605,
+    "surface_type_quality": 0.44398158298618723
+  }
+}

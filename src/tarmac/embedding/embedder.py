@@ -99,11 +99,38 @@ def collate_embedding_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 class HFBackboneEmbedder:
-    def __init__(self, model_name: str = DINOV3_MODEL) -> None:
+    def __init__(
+        self,
+        model_name: str = DINOV3_MODEL,
+        checkpoint_path: Path | None = None,
+        *,
+        allow_fallback: bool = True,
+        attn_implementation: str | None = None,
+        move_to_device: bool = True,
+    ) -> None:
+        checkpoint = _load_checkpoint_metadata(checkpoint_path)
+        if checkpoint is not None and checkpoint.get("model_name"):
+            model_name = str(checkpoint["model_name"])
         self.requested_model = model_name
         self.device = _preferred_device()
-        self.processor, self.model, self.model_name = self._load_with_fallback(model_name)
-        self.model.to(self.device)
+        self.processor, self.model, self.model_name = self._load_with_fallback(
+            model_name,
+            allow_fallback=allow_fallback,
+            attn_implementation=attn_implementation,
+        )
+        if checkpoint_path is not None:
+            state = checkpoint if checkpoint is not None else torch.load(checkpoint_path, map_location="cpu")
+            model_state = state.get("model_state_dict", state)
+            if isinstance(state, dict) and "model_state_dict" in state:
+                self.model.load_state_dict(model_state, strict=True, assign=True)
+            else:
+                missing, unexpected = self.model.load_state_dict(model_state, strict=False)
+                if unexpected:
+                    raise RuntimeError(f"Unexpected checkpoint keys for backbone: {unexpected[:5]}")
+                if missing:
+                    LOGGER.warning("Checkpoint load left %s backbone keys at pretrained values.", len(missing))
+        if move_to_device:
+            self.model.to(self.device)
         self.model.eval()
         self.input_size = _processor_input_size(self.processor)
         self.backbone = "dinov3" if "dinov3" in self.model_name else "dinov2"
@@ -120,17 +147,29 @@ class HFBackboneEmbedder:
             input_size=self.input_size,
         )
 
-    def _load_with_fallback(self, model_name: str) -> tuple[Any, Any, str]:
-        for candidate in [model_name, DINOV2_MODEL]:
+    def _load_with_fallback(
+        self,
+        model_name: str,
+        *,
+        allow_fallback: bool,
+        attn_implementation: str | None,
+    ) -> tuple[Any, Any, str]:
+        candidates = [model_name]
+        if allow_fallback and model_name != DINOV2_MODEL:
+            candidates.append(DINOV2_MODEL)
+        for candidate in candidates:
             try:
                 processor = AutoImageProcessor.from_pretrained(candidate)
-                model = AutoModel.from_pretrained(candidate)
+                kwargs = {}
+                if attn_implementation:
+                    kwargs["attn_implementation"] = attn_implementation
+                model = AutoModel.from_pretrained(candidate, **kwargs)
                 if candidate != model_name:
                     LOGGER.warning("Using fallback backbone %s.", candidate)
                 return processor, model, candidate
             except Exception as exc:
                 status = _exception_status(exc)
-                if candidate == DINOV3_MODEL and status in {401, 403}:
+                if allow_fallback and candidate == DINOV3_MODEL and status in {401, 403}:
                     LOGGER.warning(
                         "DINOv3 download failed with HTTP %s. The model is gated; "
                         "falling back automatically to %s.",
@@ -138,7 +177,7 @@ class HFBackboneEmbedder:
                         DINOV2_MODEL,
                     )
                     continue
-                if candidate == model_name and candidate != DINOV2_MODEL:
+                if allow_fallback and candidate == model_name and candidate != DINOV2_MODEL:
                     LOGGER.warning(
                         "Failed to load %s (%s). Falling back automatically to %s.",
                         candidate,
@@ -156,12 +195,7 @@ class HFBackboneEmbedder:
         embeddings = outputs.last_hidden_state[:, 0, :]
         embeddings = F.normalize(embeddings.float(), p=2, dim=1)
         if torch.isnan(embeddings).any() and self.device.type == "mps":
-            LOGGER.warning("MPS produced NaN embeddings; retrying this batch on CPU.")
-            self.device = torch.device("cpu")
-            self.model.to(self.device)
-            values = pixel_values.to(self.device)
-            outputs = self.model(pixel_values=values)
-            embeddings = F.normalize(outputs.last_hidden_state[:, 0, :].float(), p=2, dim=1)
+            raise RuntimeError("MPS produced NaN embeddings; refusing silent CPU fallback.")
         if torch.isnan(embeddings).any():
             raise RuntimeError("Backbone produced NaN embeddings on CPU.")
         return embeddings.cpu()
@@ -173,11 +207,12 @@ def embed_manifest(
     faiss_index_path: Path,
     metadata_path: Path,
     model_name: str = DINOV3_MODEL,
+    checkpoint_path: Path | None = None,
     batch_size: int = 16,
     num_workers: int = 4,
 ) -> BackboneInfo:
     manifest = pd.read_parquet(manifest_path)
-    embedder = HFBackboneEmbedder(model_name=model_name)
+    embedder = HFBackboneEmbedder(model_name=model_name, checkpoint_path=checkpoint_path)
     info = embedder.info
     LOGGER.info("Embedding with %s on %s.", info.model_name, info.device)
 
@@ -223,6 +258,7 @@ def embed_manifest(
 
     metadata = {
         **info.__dict__,
+        "checkpoint": str(checkpoint_path) if checkpoint_path is not None else None,
         "embedding_rows": int(sum(len(chunk) for chunk in full_vectors) + len(manifest[manifest["split"] == "val"]) * 6),
         "full_rows": int(len(full_matrix)),
         "tile_rows": int(len(manifest[manifest["split"] == "val"]) * 6),
@@ -274,4 +310,13 @@ def _exception_status(exc: Exception) -> int | None:
         if code is not None and not (isinstance(code, float) and math.isnan(code)):
             return int(code)
         current = current.__cause__ or current.__context__
+    return None
+
+
+def _load_checkpoint_metadata(checkpoint_path: Path | None) -> dict[str, Any] | None:
+    if checkpoint_path is None:
+        return None
+    state = torch.load(checkpoint_path, map_location="cpu")
+    if isinstance(state, dict):
+        return state
     return None
