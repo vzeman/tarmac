@@ -280,6 +280,27 @@ def analyze(
 
 
 @app.command()
+def visualize(
+    directory: Path = typer.Argument(..., help="Directory of jpg/png/webp images to visualize recursively."),
+    out: Path | None = typer.Option(None, "--out", "-o", help="HTML output path."),
+    k: int = typer.Option(10, "--k", help="Nearest neighbors per image."),
+    batch_size: int = typer.Option(16, "--batch-size", help="Embedding batch size."),
+    device: str = typer.Option("cpu", "--device", help="Inference device: cpu, mps, or auto."),
+) -> None:
+    """Project a folder of images into the persisted reference UMAP space."""
+    from tarmac.inference.visualize import visualize_directory
+
+    report_path = visualize_directory(
+        directory=directory,
+        out=out,
+        k=k,
+        batch_size=batch_size,
+        device=device,
+    )
+    console.print(f"Visualization written to {report_path}")
+
+
+@app.command()
 def report(
     run_dir: Path = typer.Argument(..., help="Run directory produced by `tarmac analyze`."),
     output: Path | None = typer.Option(None, "--output", "-o", help="HTML output path."),

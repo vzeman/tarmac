@@ -6,13 +6,12 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, silhouette_score
 from sklearn.neighbors import KNeighborsClassifier
 import umap
 
 from tarmac.cluster.cluster import cluster_purity, load_full_embeddings
+from tarmac.report.umap_html import reference_scatter_html
 
 SEED = 42
 
@@ -199,47 +198,7 @@ def _knn_metrics(df: pd.DataFrame, embeddings: np.ndarray, target: str) -> dict[
 
 
 def _write_umap_html(df: pd.DataFrame, projection: np.ndarray, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    custom = np.stack(
-        [
-            df["image_path"].astype(str).to_numpy(),
-            df["surface_type"].astype(str).to_numpy(),
-            df["quality"].astype(str).to_numpy(),
-            df["split"].astype(str).to_numpy(),
-        ],
-        axis=1,
-    )
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("Surface type", "Quality"))
-    surface_codes, surface_uniques = pd.factorize(df["surface_type"])
-    fig.add_trace(
-        go.Scattergl(
-            x=projection[:, 0],
-            y=projection[:, 1],
-            mode="markers",
-            marker={"color": surface_codes, "colorscale": "Turbo", "size": 5, "opacity": 0.75},
-            customdata=custom,
-            hovertemplate="path=%{customdata[0]}<br>type=%{customdata[1]}<br>quality=%{customdata[2]}<br>split=%{customdata[3]}<extra></extra>",
-            name="surface_type",
-            text=[surface_uniques[i] for i in surface_codes],
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scattergl(
-            x=projection[:, 0],
-            y=projection[:, 1],
-            mode="markers",
-            marker={"color": df["quality"], "colorscale": "Viridis", "size": 5, "opacity": 0.75},
-            customdata=custom,
-            hovertemplate="path=%{customdata[0]}<br>type=%{customdata[1]}<br>quality=%{customdata[2]}<br>split=%{customdata[3]}<extra></extra>",
-            name="quality",
-        ),
-        row=1,
-        col=2,
-    )
-    fig.update_layout(title="Frozen-backbone UMAP projection", template="plotly_white", height=720)
-    fig.write_html(path)
+    reference_scatter_html(df, projection, path)
 
 
 def _write_umap_png(df: pd.DataFrame, projection: np.ndarray, path: Path) -> None:
