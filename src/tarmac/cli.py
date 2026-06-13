@@ -89,6 +89,25 @@ def download_runway_roboflow_cmd(
     )
 
 
+@download_app.command("crackairport")
+def download_crackairport_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/crackairport"),
+        "--output-dir",
+        "-o",
+        help="Directory for the Mendeley CrackAirport dataset.",
+    ),
+) -> None:
+    """Download CrackAirport 3v5r2fxf89 v1 from Mendeley."""
+    from tarmac.datasets.crackairport import download_crackairport
+
+    result = download_crackairport(output_dir)
+    console.print(
+        f"CrackAirport ready: pairs={result.pair_count}, images={result.image_count}, "
+        f"masks={result.mask_count}, pairs_index={result.pairs_path}"
+    )
+
+
 @app.command()
 def prepare(
     raw_dir: Path = typer.Option(Path("data/raw"), help="Raw dataset root."),
@@ -117,6 +136,149 @@ def prepare_cracks(
     manifest = build_crack_manifest(raw_dir=raw_dir, output_path=output)
     console.print(f"Crack manifest written to {manifest.path} ({manifest.row_count} rows)")
     console.print(manifest.stats.to_string(index=False))
+
+
+@app.command("yolo-prep-seg")
+def yolo_prep_seg(
+    raw_dir: Path = typer.Option(Path("data/raw/crackairport"), help="CrackAirport raw directory."),
+    output_dir: Path = typer.Option(Path("data/processed/yolo_crack_seg"), help="YOLO segmentation output directory."),
+    keep_empty: bool = typer.Option(True, help="Keep empty masks as background-only YOLO labels."),
+) -> None:
+    """Convert CrackAirport masks to Ultralytics YOLO segmentation format."""
+    from tarmac.yolo.prepare_seg import prepare_yolo_seg
+
+    result = prepare_yolo_seg(raw_dir=raw_dir, output_dir=output_dir, keep_empty=keep_empty)
+    console.print(
+        f"YOLO seg ready: pairs={result.pair_count}, labels={result.label_count}, "
+        f"empty_masks={result.empty_mask_count}, data={result.data_yaml}"
+    )
+
+
+@app.command("yolo-train-seg")
+def yolo_train_seg(
+    data_yaml: Path = typer.Option(Path("data/processed/yolo_crack_seg/data.yaml"), help="YOLO data.yaml."),
+    model: str = typer.Option("yolo11n-seg.pt", help="Ultralytics seed model, e.g. yolo11n-seg.pt or yolo11s-seg.pt."),
+    epochs: int = typer.Option(100, help="Maximum epochs."),
+    patience: int = typer.Option(20, help="Early-stopping patience."),
+    imgsz: int = typer.Option(512, help="Training image size."),
+    batch: int = typer.Option(8, help="Training batch size."),
+    device: str = typer.Option("mps", help="Training device; MPS only."),
+) -> None:
+    """Train a mobile YOLO11 segmentation crack model on MPS."""
+    from tarmac.yolo.train_seg import train_yolo_seg
+
+    result = train_yolo_seg(
+        data_yaml=data_yaml,
+        model=model,
+        epochs=epochs,
+        patience=patience,
+        imgsz=imgsz,
+        batch=batch,
+        device=device,
+    )
+    console.print(
+        f"YOLO seg trained: mask_mAP50={result['mask_map50']:.4f}, "
+        f"mask_mAP50-95={result['mask_map']:.4f}, box_mAP50={result['box_map50']:.4f}"
+    )
+
+
+@app.command("yolo-export")
+def yolo_export(
+    task: str = typer.Option("seg", "--task", help="seg, cls_type, or cls_quality."),
+    weights: Path | None = typer.Option(None, help="Optional weights override."),
+    output_dir: Path = typer.Option(Path("models/yolo/export"), help="Export output root."),
+) -> None:
+    """Export YOLO weights to ONNX, CoreML, and TFLite where toolchains are available."""
+    from tarmac.yolo.export import export_yolo
+
+    result = export_yolo(task=task, weights=weights, output_dir=output_dir)
+    console.print(f"Exports produced: {', '.join(result['produced'].keys()) or 'none'}")
+    for fmt, error in result["errors"].items():
+        console.print(f"{fmt} export unavailable: {error}")
+
+
+@app.command("yolo-prep-cls")
+def yolo_prep_cls(
+    manifest: Path = typer.Option(Path("data/processed/manifest.parquet"), help="Unified manifest parquet."),
+    type_dir: Path = typer.Option(Path("data/processed/yolo_cls_type"), help="Type classification dataset."),
+    quality_dir: Path = typer.Option(Path("data/processed/yolo_cls_quality"), help="Quality classification dataset."),
+) -> None:
+    """Build YOLO classification ImageFolder datasets for surface type and quality."""
+    from tarmac.yolo.prepare_cls import prepare_yolo_cls
+
+    result = prepare_yolo_cls(manifest_path=manifest, type_dir=type_dir, quality_dir=quality_dir)
+    console.print(
+        f"YOLO cls ready: tiles={result.tile_count}, type_classes={len(result.type_classes)}, "
+        f"quality_classes={len(result.quality_classes)}"
+    )
+
+
+@app.command("yolo-train-cls")
+def yolo_train_cls(
+    target: str = typer.Option(..., "--target", help="type or quality."),
+    model: str = typer.Option("yolo11n-cls.pt", help="Ultralytics classification seed model."),
+    epochs: int = typer.Option(50, help="Maximum epochs."),
+    patience: int = typer.Option(10, help="Early-stopping patience."),
+    imgsz: int = typer.Option(224, help="Training image size."),
+    batch: int = typer.Option(32, help="Training batch size."),
+    device: str = typer.Option("mps", help="Training device; MPS only."),
+    distill: bool = typer.Option(False, help="Use optional DINOv3 teacher pseudo-label hook."),
+) -> None:
+    """Train a YOLO11 classification student for surface type or quality."""
+    from tarmac.yolo.train_cls import train_yolo_cls
+
+    result = train_yolo_cls(
+        target=target,
+        model=model,
+        epochs=epochs,
+        patience=patience,
+        imgsz=imgsz,
+        batch=batch,
+        device=device,
+        distill=distill,
+    )
+    extra = f", off_by_one={result['off_by_one']:.4f}" if "off_by_one" in result else ""
+    console.print(f"YOLO cls {target}: top1={result['top1']:.4f}{extra}")
+
+
+@app.command("yolo-benchmark")
+def yolo_benchmark(
+    sample_dir: Path = typer.Option(Path("/tmp/tarmac_runway_test"), help="Image directory for latency samples."),
+    iterations: int = typer.Option(20, help="Timing iterations."),
+) -> None:
+    """Benchmark YOLO students on CPU and MPS and write reports."""
+    from tarmac.yolo.benchmark import benchmark_yolo
+
+    result = benchmark_yolo(sample_dir=sample_dir, iterations=iterations)
+    console.print(f"YOLO benchmark written: reports/yolo_benchmark.json ({len(result['models'])} models)")
+
+
+@app.command("yolo-detect")
+def yolo_detect_cmd(
+    path: Path = typer.Argument(..., help="Image or directory to analyze with the YOLO crack segmenter."),
+    weights: Path = typer.Option(Path("models/yolo/crack_seg/weights/best.pt"), help="YOLO segmentation weights."),
+    out: Path = typer.Option(Path("runs/yolo_detect"), "--out", "-o", help="Output directory."),
+    imgsz: int = typer.Option(512, help="Inference image size."),
+    conf: float = typer.Option(0.25, help="YOLO confidence threshold."),
+    device: str = typer.Option("cpu", help="Inference device: cpu or mps."),
+    mm_per_pixel: float | None = typer.Option(None, help="Optional metric calibration."),
+) -> None:
+    """Run YOLO crack segmentation and render comparable crack measurement overlays."""
+    from tarmac.yolo.detect import yolo_detect
+
+    result = yolo_detect(
+        path=path,
+        weights=weights,
+        out_dir=out,
+        imgsz=imgsz,
+        conf=conf,
+        device=device,
+        mm_per_pixel=mm_per_pixel,
+    )
+    console.print(
+        f"YOLO detect complete: images={result['images']}, cracked={result['cracked']}, "
+        f"mean_area={result['mean_crack_area_pct']:.4f}%, out={result['output_dir']}"
+    )
 
 
 def _stub(command: str) -> None:

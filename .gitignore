@@ -5,6 +5,12 @@ runs/
 .uv-cache/
 __pycache__/
 *.egg-info/
+*.pt
+*.pth
+*.onnx
+*.tflite
+*.mlmodel
+*.mlpackage/
 /.uv-cache/
 /.idea/
 .DS_Store

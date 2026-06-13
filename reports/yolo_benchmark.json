@@ -1,0 +1,66 @@
+{
+  "images": 12,
+  "iterations": 3,
+  "models": [
+    {
+      "available": true,
+      "cpu_fps": 46.92830992270954,
+      "cpu_ms": 21.30909895640798,
+      "export_errors": {
+        "coreml": "No module named 'coremltools'",
+        "tflite": "No module named 'tensorflow'"
+      },
+      "exports": {
+        "best.onnx": 11.030229568481445
+      },
+      "mask_map": 0.008504563841705327,
+      "mask_map50": 0.04132110046319104,
+      "model": "crack_seg",
+      "mps_fps": 295.06639746242456,
+      "mps_ms": 3.3890677101832503,
+      "params": 2842803,
+      "weights": "models/yolo/crack_seg/weights/best.pt",
+      "weights_size_mb": 5.700534820556641
+    },
+    {
+      "available": true,
+      "cpu_fps": 248.9127361662687,
+      "cpu_ms": 4.017472208943218,
+      "export_errors": {
+        "coreml": "No module named 'coremltools'",
+        "tflite": "No module named 'tensorflow'"
+      },
+      "exports": {
+        "best.onnx": 5.890345573425293
+      },
+      "model": "cls_type",
+      "mps_fps": 519.4308690702948,
+      "mps_ms": 1.9251840033878882,
+      "params": 1537509,
+      "top1": 0.8032646179199219,
+      "weights": "models/yolo/cls_type/weights/best.pt",
+      "weights_size_mb": 3.044984817504883
+    },
+    {
+      "available": true,
+      "cpu_fps": 240.38993172555624,
+      "cpu_ms": 4.1599079995648935,
+      "export_errors": {
+        "coreml": "No module named 'coremltools'",
+        "tflite": "No module named 'tensorflow'"
+      },
+      "exports": {
+        "best.onnx": 5.890320777893066
+      },
+      "model": "cls_quality",
+      "mps_fps": 559.8445622426188,
+      "mps_ms": 1.7862100794445723,
+      "off_by_one": 0.9291237113402062,
+      "params": 1537509,
+      "top1": 0.47895190119743347,
+      "weights": "models/yolo/cls_quality/weights/best.pt",
+      "weights_size_mb": 3.044984817504883
+    }
+  ],
+  "sample_dir": "/tmp/tarmac_runway_test"
+}

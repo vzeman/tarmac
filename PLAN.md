@@ -104,6 +104,21 @@ Implemented:
 5. `tarmac report` includes a Crack geometry section with the mask overlays and measurement table.
 6. Optional learned segmenter remains skipped for now: the local CRACK500/DeepCrack directories contain code mirrors but no usable masks, and Roboflow Universe does not expose a public API search endpoint for discovering arbitrary segmentation datasets. See `reports/CRACK_SEGMENTATION.md`.
 
+### Phase 8 — YOLO mobile / real-time track (user-requested 2026-06-13)
+Goal: produce small YOLO11 students for near-real-time mobile inference while keeping fine-tuned DINOv3 as the high-accuracy server-side teacher. This is **not** a weight conversion from DINOv3: YOLO models are trained directly on labels, with an optional DINOv3 teacher-to-student distillation hook for future pseudo-label expansion.
+
+Implemented:
+1. `tarmac download crackairport` downloads the Mendeley CrackAirport v1 dataset (`3v5r2fxf89`, CC BY 4.0) via the public API with zip fallback. The observed archive layout is `CrackAirport/train_images` plus `CrackAirport/train_masks`; the current public archive resolves to 2251 image/mask pairs.
+2. `tarmac yolo-prep-seg` converts CrackAirport masks into Ultralytics YOLO segmentation format using OpenCV contours, class `0 = crack`, and a deterministic 70/15/15 split with seed 42.
+3. `tarmac yolo-train-seg` trains YOLO11n-seg or YOLO11s-seg on Apple MPS only. CPU fallback is rejected explicitly so training either uses MPS or fails loudly.
+4. `tarmac yolo-prep-cls` crops lower-half 3x2 StreetSurfaceVis road tiles from the processed manifest and builds two ImageFolder classification datasets: surface type and quality grade.
+5. `tarmac yolo-train-cls --target type|quality` trains YOLO11n-cls students on MPS only. Quality reports both top-1 and off-by-one accuracy; `--distill` is present as an explicit future hook for DINOv3 pseudo-labeling.
+6. `tarmac yolo-export --task seg|cls_type|cls_quality` exports best weights to mobile-oriented formats through Ultralytics. ONNX is produced in the current environment; CoreML and TFLite are best-effort and report missing `coremltools` / `tensorflow` when unavailable.
+7. `tarmac yolo-detect <image|dir>` runs the YOLO segmentation model, renders red crack overlays, and reuses the existing crack geometry measurement code so outputs are comparable with the DINOv3/classical crack pipeline.
+8. `tarmac yolo-benchmark` writes `reports/YOLO_MOBILE.md` and `reports/yolo_benchmark.json` with parameters, file sizes, CPU/MPS latency, and metric headlines.
+
+Current smoke metrics are intentionally modest because the local run capped epochs for time: YOLO11n-seg mask mAP50 is 0.041 after 5 epochs; YOLO11n-cls type top-1 is 0.803 after 1 epoch; YOLO11n-cls quality off-by-one is 0.929 after 1 epoch. The default training commands remain longer (`seg=100` epochs, `cls=50`) and should be used for production-quality mobile students.
+
 ## Management protocol
 - Each phase executed by **local codex CLI** (`codex exec`), one detailed task prompt per phase; Claude reviews diffs/outputs, runs smoke tests, iterates with codex on failures.
 - Definition of done per phase: code runs end-to-end via documented command, produces artifact (manifest/embeddings/metrics/report), reviewed by Claude.

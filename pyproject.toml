@@ -26,6 +26,10 @@ dependencies = [
   "matplotlib>=3.11.0",
   "scikit-image>=0.26.0",
   "scipy>=1.17.1",
+  "ultralytics>=8.4.66",
+  "onnx>=1.21.0",
+  "onnxruntime>=1.26.0",
+  "onnxslim>=0.1.94",
 ]
 
 [project.scripts]

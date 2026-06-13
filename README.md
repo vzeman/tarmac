@@ -125,6 +125,33 @@ Get the key from Roboflow account settings. The downloader uses the Roboflow RES
 
 Caveats for runway use: the current Roboflow pull is small (40 annotated images → ~240 tiles), so runway-only metrics are directionally useful but not statistically strong; add more runway imagery to harden them. Top-down/drone runway imagery should use `--region full` or the default `--region auto`, which now selects full-frame tiles when the top row looks like pavement rather than sky/non-road.
 
+### Mobile / real-time (YOLO)
+
+Phase 8 adds small YOLO11 students for mobile and edge deployment. The fine-tuned DINOv3 model remains the high-accuracy server-side teacher; YOLO is trained from labels, with an optional future distillation hook, and exported separately. It is not a conversion of DINOv3 weights.
+
+```bash
+# CrackAirport airport-pavement masks -> YOLO segmentation
+uv run tarmac download crackairport
+uv run tarmac yolo-prep-seg
+uv run tarmac yolo-train-seg --model yolo11n-seg.pt
+uv run tarmac yolo-export --task seg
+
+# StreetSurfaceVis road tiles -> YOLO classification students
+uv run tarmac yolo-prep-cls
+uv run tarmac yolo-train-cls --target type
+uv run tarmac yolo-train-cls --target quality
+uv run tarmac yolo-export --task cls_type
+uv run tarmac yolo-export --task cls_quality
+
+# Benchmark and crack overlay inference
+uv run tarmac yolo-benchmark
+uv run tarmac yolo-detect path/to/runway-or-road-images --out runs/yolo_detect
+```
+
+Training is MPS-only by design (`device=mps`); if Apple MPS is unavailable, YOLO training fails loudly instead of silently falling back to CPU. Current smoke-run headline on this M3 Max: crack segmentation ONNX is 11.0 MB and runs at 20.6 ms CPU / 3.4 ms MPS per image; classification ONNX exports are 5.9 MB and run at about 4.4-4.5 ms CPU / 1.7-1.8 ms MPS. Accuracy from the short smoke run is below the DINOv3 teacher: YOLO type top-1 `0.803` vs DINOv3 `0.954`; YOLO quality off-by-one `0.929` vs DINOv3 `0.999`; YOLO crack mask mAP50 `0.041` after only 5 epochs. See `reports/YOLO_MOBILE.md` and `reports/yolo_benchmark.json`.
+
+Deploy the ONNX files with ONNX Runtime Mobile, or install the missing export toolchains and rerun `tarmac yolo-export` for native formats: `coremltools` for iOS CoreML `.mlpackage` and TensorFlow/TFLite tooling for Android `.tflite`. CoreML and TFLite were unavailable in this environment and are reported as export caveats.
+
 ### Visualize a folder of images in the vector space
 
 ```bash
@@ -149,6 +176,7 @@ Upload a photo/video or point at a local path, run the pipeline, and browse the 
 | [RSCD](https://thu-rsxd.com/rscd/) | 1M | material × unevenness × friction | Scale-up (downloader included) |
 | [RTK](https://data.mendeley.com/datasets/fxy5khmhpb/1) | 77,547 | asphalt/paved/unpaved + defects | Scale-up (downloader included) |
 | [Concrete & Pavement Crack](https://data.mendeley.com/datasets/429vzbgmbx/1) | 30,000 | crack / non-crack | Crack classifier head |
+| [CrackAirport](https://data.mendeley.com/datasets/3v5r2fxf89/1) | 2251 image/mask pairs in current v1 archive | airport pavement crack masks | YOLO mobile crack segmentation |
 | [CRACK500](https://github.com/fyangneil/pavement-crack-detection), [DeepCrack](https://github.com/yhlleo/DeepCrack) | masks | pixel crack masks | Crack mask data, downloadable |
 | Roboflow runway crack detection | 40 images / 240 tiles in current pull | runway crack bounding boxes | Runway-specific crack labels with `ROBOFLOW_API_KEY` |
 
@@ -162,6 +190,7 @@ src/tarmac/
   cluster/    k-means / HDBSCAN, cosine assignment
   eval/       accuracy, F1, silhouette, UMAP scatter
   inference/  photo/video analysis, folder visualization
+  yolo/       mobile YOLO dataset prep, training, export, detect, benchmark
   report/     HTML report + click-to-view UMAP scatter
   ui/         Streamlit app
 reports/      committed metrics + visualizations
@@ -170,4 +199,4 @@ PLAN.md       full architecture, decisions and phase plan
 
 ## Roadmap
 
-Built so far: data pipeline, embeddings, contrastive fine-tuning, clustering, evaluation, inference, reports, folder visualization, UI, and the Phase 7b binary **crack/runway detection** track. Next (see `PLAN.md`, Phase 7): broader multi-label defect types, defect-aware embeddings, and crack heatmaps on DINOv3 dense patch tokens.
+Built so far: data pipeline, embeddings, contrastive fine-tuning, clustering, evaluation, inference, reports, folder visualization, UI, Phase 7 crack/runway analysis, and Phase 8 YOLO mobile students for crack segmentation plus type/quality classification. Next (see `PLAN.md`): longer YOLO training runs, native CoreML/TFLite export toolchains, broader multi-label defect types, and defect-aware embeddings.
