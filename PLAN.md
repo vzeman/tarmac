@@ -124,6 +124,22 @@ Final full-training results on 2026-06-13, MPS-only with seed 42:
 - Export/latency: ONNX exports are available (`seg` `11.0 MB`, `type` `5.9 MB`, `quality` `20.8 MB`). Benchmark on `/tmp/tarmac_runway_test` gives crack segmentation `18.6 ms` CPU / `5.5 ms` MPS, type `3.7 ms` CPU / `1.5 ms` MPS, and quality `5.3 ms` CPU / `1.5 ms` MPS.
 - Runway smoke inference: `tarmac yolo-detect /tmp/tarmac_runway_test --out runs/yolo_detect_final --device mps` correctly handled `10/12` images (`9/10` cracked detected, `1/2` non-cracked rejected).
 
+### Phase 9 — Multi-domain structural-condition defect head (user-requested 2026-06-14)
+Goal: add a multi-label structural defect track on the frozen active fine-tuned DINOv3 backbone, covering crack, spalling, efflorescence, exposed rebar, and corrosion across pavement/runway/bridge/building/generic-concrete imagery.
+
+Implemented:
+1. `tarmac embed-defects` builds `data/processed/defect_embeddings.parquet` from `data/processed/defect_manifest.parquet` using the active DINOv3 checkpoint on Apple MPS only. The cache uses full-image 224 px inputs and L2-normalized CLS embeddings. To control cost and preserve rare classes, it includes all 32,626 rows carrying any target defect plus a seed-42 stratified sample of 20,000 pure-`none` negatives, for 52,626 embedded rows.
+2. `tarmac train-defect` trains a 768 -> 512 -> 5 dropout MLP with BCEWithLogits and per-class positive weights. It checkpoints every epoch under `models/checkpoints/defect/epoch_N.pt`, supports `--resume`, keeps the best validation macro-AP model at `models/defect_head.pt`, and saves validation F1-max thresholds in `models/defect_head.json`.
+3. `tarmac evaluate-defect` writes `reports/DEFECT_DETECTION.md` and `reports/defect_metrics.json` with per-label precision/recall/F1/AP, per-domain macro/micro metrics, and a multi-label confusion-style summary for validation and test.
+4. `tarmac analyze` loads `models/defect_head.pt` when present and adds `tile_defect_<label>_prob` / `tile_defect_<label>` to `tiles.parquet`, plus per-frame `defect_<label>_ratio`, `frame_has_defect_<label>`, `structural_defects`, and `frame_has_structural_defect` to `results.parquet`. The existing crack head remains intact and additive. `tarmac report` includes a Structural defects panel listing detected defect types per frame.
+5. `scripts/smoke_defect_head.py` asserts the defect checkpoint exists, metrics contain AP for all five labels, and analyze output has the new tile/frame columns.
+
+Final MPS run, seed 42:
+- Best validation macro-AP: `0.9654` at epoch 39 of 40.
+- Test per-label AP / F1: crack `0.9868 / 0.9393`, spalling `0.9660 / 0.8953`, efflorescence `0.9675 / 0.9325`, exposed rebar `0.9863 / 0.9593`, corrosion `0.8982 / 0.8513`.
+- Test per-domain macro-F1: bridge `0.8975`, pavement `0.8996`, building `0.8768`, runway `0.8990`, concrete-generic `0.9986`.
+- Caveat: bridge is the only domain with all five non-crack structural labels in the current manifest; building, pavement, runway, and concrete-generic domain metrics are effectively crack-transfer checks. Corrosion is the weakest label because its visual signal overlaps staining/efflorescence and has fewer positives.
+
 ## Management protocol
 - Each phase executed by **local codex CLI** (`codex exec`), one detailed task prompt per phase; Claude reviews diffs/outputs, runs smoke tests, iterates with codex on failures.
 - Definition of done per phase: code runs end-to-end via documented command, produces artifact (manifest/embeddings/metrics/report), reviewed by Claude.

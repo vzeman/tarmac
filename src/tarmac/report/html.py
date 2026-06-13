@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import umap
 
+from tarmac.defect import DEFECT_LABELS
 from tarmac.inference.analyze import image_to_base64, load_active_artifacts
 
 QUALITY_COLORS = {
@@ -45,6 +46,7 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
 
     timeline = quality_timeline(df)
     crack_panel = cracked_sections_panel(run_dir, df)
+    structural_panel = structural_defects_panel(df)
     crack_geometry = crack_geometry_panel(run_dir, df)
     scatter = umap_scatter(ref_xy, ref_df, run_xy, df)
     gps = gps_scatter(df) if {"latitude", "longitude"}.issubset(df.columns) else ""
@@ -81,6 +83,7 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     .measure-table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
     .measure-table th, .measure-table td {{ border-bottom: 1px solid #dde2e7; padding: 8px; text-align: left; }}
     .measure-table th {{ background: #f1f4f7; }}
+    .defect-tag {{ display: inline-block; margin: 2px 4px 2px 0; padding: 2px 8px; border-radius: 999px; background: #e8eef5; font-weight: 700; font-size: 12px; }}
   </style>
 </head>
 <body>
@@ -93,6 +96,7 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     <h2>Quality Timeline</h2>
     <div class="panel">{timeline}</div>
     {crack_panel}
+    {structural_panel}
     {crack_geometry}
     <h2>Embedding Map</h2>
     <div class="panel">{scatter}</div>
@@ -183,6 +187,51 @@ def crack_timeline(df: pd.DataFrame) -> str:
     fig.update_xaxes(title="Frame / timestamp")
     fig.update_layout(margin={"l": 48, "r": 20, "t": 20, "b": 45}, height=320)
     return pio.to_html(fig, include_plotlyjs=False, full_html=False)
+
+
+def structural_defects_panel(df: pd.DataFrame) -> str:
+    if "structural_defects" not in df.columns:
+        return ""
+    rows: list[str] = []
+    for row in df.itertuples():
+        defects = _structural_defect_list(getattr(row, "structural_defects", "[]"))
+        tags = (
+            " ".join(f'<span class="defect-tag">{defect}</span>' for defect in defects)
+            if defects
+            else "none"
+        )
+        ratios = []
+        for label in DEFECT_LABELS:
+            value = getattr(row, f"defect_{label}_ratio", None)
+            if value is not None and not pd.isna(value):
+                ratios.append(f"{label}: {float(value):.2f}")
+        rows.append(
+            f"<tr><td>{row.frame_index}</td><td>{row.filename}</td><td>{tags}</td>"
+            f"<td>{', '.join(ratios) or 'n/a'}</td></tr>"
+        )
+    table = (
+        '<table class="measure-table"><thead><tr><th>Frame</th><th>File</th>'
+        '<th>Detected defect types</th><th>Tile ratios</th></tr></thead><tbody>'
+        + "\n".join(rows)
+        + "</tbody></table>"
+    )
+    return f"""
+    <h2 id="structural-defects">Structural defects</h2>
+    <div class="panel">{table}</div>
+"""
+
+
+def _structural_defect_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = []
+    elif isinstance(value, list):
+        parsed = value
+    else:
+        parsed = []
+    return [str(item) for item in parsed]
 
 
 def crack_overlay_gallery(run_dir: Path, df: pd.DataFrame) -> str:

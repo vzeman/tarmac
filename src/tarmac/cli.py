@@ -5,6 +5,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.table import Table
 
 DINOV3_MODEL = "facebook/dinov3-vitb16-pretrain-lvd1689m"
 
@@ -191,6 +192,40 @@ def prepare_defects(
     console.print(f"Defect manifest written to {manifest.path} ({manifest.row_count} rows)")
     console.print(manifest.source_domain_stats.to_string(index=False))
     console.print(manifest.label_totals.to_string(index=False))
+
+
+@app.command("embed-defects")
+def embed_defects(
+    manifest: Path = typer.Option(
+        Path("data/processed/defect_manifest.parquet"), help="Input defect manifest parquet."
+    ),
+    output: Path = typer.Option(
+        Path("data/processed/defect_embeddings.parquet"), help="Defect embedding parquet output."
+    ),
+    metadata: Path = typer.Option(
+        Path("data/processed/defect_embeddings.json"), help="Defect embedding metadata JSON."
+    ),
+    none_cap: int = typer.Option(20_000, help="Maximum pure-none rows to embed."),
+    batch_size: int = typer.Option(64, help="MPS backbone embedding batch size."),
+    num_workers: int = typer.Option(0, help="DataLoader workers."),
+    force: bool = typer.Option(False, help="Rebuild the embedding cache even if it exists."),
+) -> None:
+    """Embed the balanced defect-manifest subset with the frozen active DINOv3 backbone."""
+    from tarmac.defect.embeddings import build_defect_embeddings
+
+    result = build_defect_embeddings(
+        manifest_path=manifest,
+        output_path=output,
+        metadata_path=metadata,
+        none_cap=none_cap,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        force=force,
+    )
+    console.print(
+        f"Defect embeddings ready: rows={result.row_count} positives={result.positive_rows} "
+        f"pure_none={result.pure_none_rows} dim={result.embedding_dim}; output={result.embeddings_path}"
+    )
 
 
 @app.command("yolo-prep-seg")
@@ -500,6 +535,50 @@ def train_crack(
     )
 
 
+@app.command("train-defect")
+def train_defect(
+    manifest: Path = typer.Option(
+        Path("data/processed/defect_manifest.parquet"), help="Input defect manifest parquet."
+    ),
+    embeddings: Path = typer.Option(
+        Path("data/processed/defect_embeddings.parquet"), help="Cached defect embeddings parquet."
+    ),
+    embedding_metadata: Path = typer.Option(
+        Path("data/processed/defect_embeddings.json"), help="Cached defect embeddings metadata JSON."
+    ),
+    checkpoint: Path = typer.Option(Path("models/defect_head.pt"), help="Best defect head output."),
+    metadata: Path = typer.Option(Path("models/defect_head.json"), help="Training metadata JSON."),
+    epochs: int = typer.Option(40, help="Maximum defect-head epochs."),
+    batch_size: int = typer.Option(512, help="Head training batch size."),
+    embed_batch_size: int = typer.Option(64, help="MPS backbone batch size when cache is missing."),
+    lr: float = typer.Option(1e-3, help="Defect-head AdamW learning rate."),
+    patience: int = typer.Option(5, help="Early-stopping patience."),
+    resume: bool = typer.Option(False, help="Resume from latest defect checkpoint."),
+    none_cap: int = typer.Option(20_000, help="Maximum pure-none rows in the embedding cache."),
+) -> None:
+    """Train a multi-label structural defect classifier head on cached embeddings."""
+    from tarmac.defect.train import train_defect_head
+
+    result = train_defect_head(
+        manifest_path=manifest,
+        embeddings_path=embeddings,
+        embedding_metadata_path=embedding_metadata,
+        output_checkpoint=checkpoint,
+        output_metadata=metadata,
+        epochs=epochs,
+        batch_size=batch_size,
+        embed_batch_size=embed_batch_size,
+        lr=lr,
+        patience=patience,
+        resume=resume,
+        none_cap=none_cap,
+    )
+    console.print(
+        f"Defect training complete: best_epoch={result['best_epoch']} "
+        f"best_val_macro_ap={result['best_val_macro_ap']:.4f}; checkpoint={result['checkpoint']}"
+    )
+
+
 @app.command()
 def evaluate(
     embeddings: Path = typer.Option(
@@ -597,6 +676,30 @@ def evaluate_crack(
         f"Crack metrics written to {metrics}; threshold={result['threshold']:.3f} "
         f"test_f1={test['f1']:.4f} precision={test['precision']:.4f} recall={test['recall']:.4f}"
     )
+
+
+@app.command("evaluate-defect")
+def evaluate_defect(
+    embeddings: Path = typer.Option(
+        Path("data/processed/defect_embeddings.parquet"), help="Cached defect embeddings parquet."
+    ),
+    checkpoint: Path = typer.Option(Path("models/defect_head.pt"), help="Defect head checkpoint."),
+    metadata: Path = typer.Option(Path("models/defect_head.json"), help="Defect head metadata JSON."),
+    metrics: Path = typer.Option(Path("reports/defect_metrics.json"), help="Metrics JSON output."),
+    report_path: Path = typer.Option(Path("reports/DEFECT_DETECTION.md"), help="Markdown report output."),
+) -> None:
+    """Evaluate the multi-label structural defect classifier on val and test splits."""
+    from tarmac.defect.evaluate import evaluate_defect_head
+
+    result = evaluate_defect_head(
+        embeddings_path=embeddings,
+        checkpoint_path=checkpoint,
+        metadata_path=metadata,
+        metrics_path=metrics,
+        report_path=report_path,
+    )
+    _print_defect_metrics(result)
+    console.print(f"Defect metrics written to {metrics}; report={report_path}")
 
 
 @app.command()
@@ -777,6 +880,45 @@ def _suffix_path(path: Path, suffix: str | None) -> Path:
     if suffix == "finetuned" and path.name == "phase2_metrics.json":
         return path.with_name("phase3_metrics.json")
     return path.with_name(f"{path.stem}_{suffix}{path.suffix}")
+
+
+def _print_defect_metrics(result: dict) -> None:
+    for split in ("val", "test"):
+        label_table = Table(title=f"Defect {split} per-label metrics")
+        label_table.add_column("Label")
+        label_table.add_column("Precision", justify="right")
+        label_table.add_column("Recall", justify="right")
+        label_table.add_column("F1", justify="right")
+        label_table.add_column("AP", justify="right")
+        label_table.add_column("Support", justify="right")
+        for label, metrics in result[split]["per_label"].items():
+            label_table.add_row(
+                label,
+                f"{float(metrics['precision']):.4f}",
+                f"{float(metrics['recall']):.4f}",
+                f"{float(metrics['f1']):.4f}",
+                f"{float(metrics['ap']):.4f}",
+                str(metrics["support"]),
+            )
+        console.print(label_table)
+
+        domain_table = Table(title=f"Defect {split} per-domain metrics")
+        domain_table.add_column("Domain")
+        domain_table.add_column("Rows", justify="right")
+        domain_table.add_column("Labels", justify="right")
+        domain_table.add_column("Macro F1", justify="right")
+        domain_table.add_column("Micro F1", justify="right")
+        domain_table.add_column("Macro AP", justify="right")
+        for domain, metrics in result[split]["per_domain"].items():
+            domain_table.add_row(
+                domain,
+                str(metrics["rows"]),
+                str(metrics.get("macro_label_count", "")),
+                f"{float(metrics['macro_f1']):.4f}",
+                f"{float(metrics['micro_f1']):.4f}",
+                f"{float(metrics['macro_ap']):.4f}",
+            )
+        console.print(domain_table)
 
 
 if __name__ == "__main__":

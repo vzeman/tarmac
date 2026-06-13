@@ -19,6 +19,7 @@ from rich.console import Console
 from rich.table import Table
 from tqdm.auto import tqdm
 
+from tarmac.defect import DEFECT_LABELS
 from tarmac.embedding.embedder import DINOV3_MODEL, HFBackboneEmbedder
 from tarmac.crack.model import CrackHead
 from tarmac.crack.segment import segment_cracks
@@ -111,6 +112,7 @@ def analyze_path(
         if non_road_threshold is None:
             non_road_threshold = calibrate_non_road_threshold(artifacts.embeddings_path, index, k=k)
         crack_detector = load_crack_detector()
+        defect_detector = load_defect_detector()
         chosen_region = resolve_region_mode(
             requested_region=region,
             frame_paths=frame_paths,
@@ -138,6 +140,7 @@ def analyze_path(
             non_road_threshold=non_road_threshold,
             batch_size=batch_size,
             crack_detector=crack_detector,
+            defect_detector=defect_detector,
             region=chosen_region,
             crack_segmentation=run_crack_segmentation,
             mm_per_pixel=mm_per_pixel,
@@ -166,6 +169,7 @@ def analyze_path(
         requested_region=region,
         region=chosen_region,
         crack_segmentation=run_crack_segmentation,
+        defect_detector=defect_detector,
     )
     summary_path = out_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2) + "\n")
@@ -259,6 +263,7 @@ def analyze_frames(
     non_road_threshold: float,
     batch_size: int,
     crack_detector: dict[str, Any] | None = None,
+    defect_detector: dict[str, Any] | None = None,
     region: str = "lower_half",
     crack_segmentation: bool = False,
     mm_per_pixel: float | None = None,
@@ -331,6 +336,7 @@ def analyze_frames(
         )
         crack_prob = predict_crack_probability(embedding, crack_detector)
         crack_flag = bool(crack_prob >= float(crack_detector["threshold"])) if crack_detector else False
+        defect_probs = predict_defect_probabilities(embedding, defect_detector)
         tile_record = {
             "frame_index": int(item["frame_index"]),
             "tile": item["kind"],
@@ -342,6 +348,12 @@ def analyze_frames(
             "region": region,
             **pred,
         }
+        if defect_detector is not None:
+            thresholds = defect_detector["thresholds"]
+            for label in defect_detector["labels"]:
+                prob = float(defect_probs[label])
+                tile_record[f"tile_defect_{label}_prob"] = prob
+                tile_record[f"tile_defect_{label}"] = bool(prob >= float(thresholds[label]))
         frame["tiles"].append(tile_record)
         tile_records.append(tile_record)
 
@@ -362,6 +374,18 @@ def analyze_frames(
             confidence = 0.0
             road_tile_count = 0
             crack_ratio = 0.0
+        defect_ratios: dict[str, float] = {}
+        defect_types: list[str] = []
+        if defect_detector is not None:
+            for label in defect_detector["labels"]:
+                ratio = (
+                    float(np.mean([bool(tile.get(f"tile_defect_{label}", False)) for tile in road_tiles]))
+                    if road_tiles
+                    else 0.0
+                )
+                defect_ratios[label] = ratio
+                if ratio > 0.0:
+                    defect_types.append(label)
         record = {
             "frame_index": frame["frame_index"],
             "input_type": frame["input_type"],
@@ -382,6 +406,12 @@ def analyze_frames(
             "embedding": frame["embedding"].astype("float32"),
             "region": region,
         }
+        if defect_detector is not None:
+            for label, ratio in defect_ratios.items():
+                record[f"defect_{label}_ratio"] = ratio
+                record[f"frame_has_defect_{label}"] = bool(ratio > 0.0)
+            record["structural_defects"] = json.dumps(defect_types)
+            record["frame_has_structural_defect"] = bool(defect_types)
         if crack_segmentation:
             with Image.open(frame["source_path"]) as original:
                 seg_dir = out_dir / "crackseg"
@@ -439,6 +469,28 @@ def load_crack_detector(
     return {"head": head, "threshold": threshold, "checkpoint": str(checkpoint_path)}
 
 
+def load_defect_detector(
+    checkpoint_path: Path = Path("models/defect_head.pt"),
+    metadata_path: Path = Path("models/defect_head.json"),
+) -> dict[str, Any] | None:
+    if not checkpoint_path.exists():
+        return None
+    from tarmac.defect.evaluate import load_defect_head
+
+    head, thresholds_array, _metadata = load_defect_head(
+        checkpoint_path=checkpoint_path,
+        metadata_path=metadata_path,
+    )
+    thresholds = {label: float(thresholds_array[index]) for index, label in enumerate(DEFECT_LABELS)}
+    return {
+        "head": head,
+        "labels": DEFECT_LABELS,
+        "thresholds": thresholds,
+        "checkpoint": str(checkpoint_path),
+        "metadata": str(metadata_path) if metadata_path.exists() else None,
+    }
+
+
 def resolve_region_mode(
     requested_region: str,
     frame_paths: list[Path],
@@ -489,6 +541,16 @@ def predict_crack_probability(embedding: np.ndarray, crack_detector: dict[str, A
     return float(torch.sigmoid(head(tensor))[0].item())
 
 
+@torch.inference_mode()
+def predict_defect_probabilities(embedding: np.ndarray, defect_detector: dict[str, Any] | None) -> dict[str, float]:
+    if defect_detector is None:
+        return {}
+    head = defect_detector["head"]
+    tensor = torch.from_numpy(embedding.reshape(1, -1).astype("float32"))
+    probs = torch.sigmoid(head(tensor))[0].detach().cpu().numpy()
+    return {label: float(probs[index]) for index, label in enumerate(defect_detector["labels"])}
+
+
 def predict_tile(
     embedding: np.ndarray,
     reference_df: pd.DataFrame,
@@ -537,6 +599,7 @@ def build_summary(
     requested_region: str,
     region: str,
     crack_segmentation: bool,
+    defect_detector: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     valid_quality = frames_df["predicted_quality"].dropna().astype(int)
     quality_distribution = {
@@ -546,7 +609,10 @@ def build_summary(
         str(frames_df["surface_type"].mode().iloc[0]) if not frames_df.empty else "unknown"
     )
     crack_available = "crack_ratio" in frames_df.columns
-    return {
+    structural_labels = [
+        label for label in DEFECT_LABELS if f"defect_{label}_ratio" in frames_df.columns
+    ]
+    summary = {
         "input_path": str(input_path),
         "input_type": input_type,
         "out_dir": str(out_dir),
@@ -572,6 +638,20 @@ def build_summary(
         "region": region,
         "crack_segmentation": bool(crack_segmentation),
     }
+    if structural_labels:
+        summary["defect_head"] = defect_detector["checkpoint"] if defect_detector else str(Path("models/defect_head.pt"))
+        summary["mean_defect_ratios"] = {
+            label: float(frames_df[f"defect_{label}_ratio"].mean()) if len(frames_df) else 0.0
+            for label in structural_labels
+        }
+        summary["frames_with_structural_defects"] = (
+            int(frames_df["frame_has_structural_defect"].sum())
+            if "frame_has_structural_defect" in frames_df.columns
+            else 0
+        )
+    else:
+        summary["defect_head"] = str(Path("models/defect_head.pt")) if Path("models/defect_head.pt").exists() else None
+    return summary
 
 
 def print_summary(summary: dict[str, Any], console: Console | None = None) -> None:
@@ -586,6 +666,12 @@ def print_summary(summary: dict[str, Any], console: Console | None = None) -> No
     if summary.get("mean_crack_ratio") is not None:
         table.add_row("Mean crack ratio", f"{summary['mean_crack_ratio']:.3f}")
         table.add_row("Frames with cracks", str(summary.get("frames_with_crack", 0)))
+    if summary.get("mean_defect_ratios"):
+        ratios = ", ".join(
+            f"{label}={float(value):.2f}" for label, value in summary["mean_defect_ratios"].items()
+        )
+        table.add_row("Structural defects", ratios)
+        table.add_row("Frames with structural defects", str(summary.get("frames_with_structural_defects", 0)))
     table.add_row("Quality distribution", json.dumps(summary["quality_distribution"]))
     table.add_row("Results", str(summary["results_parquet"]))
     table.add_row("Summary", str(Path(summary["out_dir"]) / "summary.json"))

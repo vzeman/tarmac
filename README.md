@@ -153,6 +153,21 @@ Get the key from Roboflow account settings. The downloader uses the Roboflow RES
 
 Caveats for runway use: the current Roboflow pull is small (40 annotated images → ~240 tiles), so runway-only metrics are directionally useful but not statistically strong; add more runway imagery to harden them. Top-down/drone runway imagery should use `--region full` or the default `--region auto`, which now selects full-frame tiles when the top row looks like pavement rather than sky/non-road.
 
+### Structural defect detection (multi-domain)
+
+Phase 9 adds a multi-label structural-condition head on frozen active DINOv3 embeddings for `crack`, `spalling`, `efflorescence`, `exposed_rebar`, and `corrosion`. It uses the unified defect manifest across bridge, building, pavement, runway, and generic concrete domains. The embedding cache includes every row with any defect label plus a seed-42 stratified sample of 20,000 pure-`none` negatives.
+
+```bash
+uv run tarmac prepare-defects
+uv run tarmac embed-defects              # requires Apple MPS; no CPU fallback
+uv run tarmac train-defect               # 768 -> 512 -> 5 multi-label head
+uv run tarmac evaluate-defect
+```
+
+Held-out test AP / F1: crack `0.9868 / 0.9393`, spalling `0.9660 / 0.8953`, efflorescence `0.9675 / 0.9325`, exposed rebar `0.9863 / 0.9593`, corrosion `0.8982 / 0.8513`. Test domain macro-F1: bridge `0.8975`, pavement `0.8996`, building `0.8768`, runway `0.8990`, concrete-generic `0.9986`. Full tables are in [`reports/DEFECT_DETECTION.md`](reports/DEFECT_DETECTION.md).
+
+When `models/defect_head.pt` exists, `tarmac analyze` adds per-tile `tile_defect_<label>_prob` and `tile_defect_<label>` columns to `tiles.parquet`, plus per-frame `defect_<label>_ratio`, `frame_has_defect_<label>`, `structural_defects`, and `frame_has_structural_defect` columns to `results.parquet`. The HTML report includes a **Structural defects** panel listing detected defect types per frame.
+
 ### Mobile / real-time (YOLO)
 
 Phase 8 adds small YOLO11 students for mobile and edge deployment. The fine-tuned DINOv3 model remains the high-accuracy server-side teacher; YOLO is trained from labels, with an optional future distillation hook, and exported separately. It is not a conversion of DINOv3 weights.
@@ -216,6 +231,7 @@ src/tarmac/
   embedding/  DINOv3 embedder, road tiling
   train/      supervised-contrastive fine-tuning
   cluster/    k-means / HDBSCAN, cosine assignment
+  defect/     multi-domain structural defect embedding cache + head
   eval/       accuracy, F1, silhouette, UMAP scatter
   inference/  photo/video analysis, folder visualization
   yolo/       mobile YOLO dataset prep, training, export, detect, benchmark
@@ -227,4 +243,4 @@ PLAN.md       full architecture, decisions and phase plan
 
 ## Roadmap
 
-Built so far: data pipeline, embeddings, contrastive fine-tuning, clustering, evaluation, inference, reports, folder visualization, UI, Phase 7 crack/runway analysis, and Phase 8 full-training YOLO mobile students for crack segmentation plus type/quality classification. Next (see `PLAN.md`): resolve native CoreML export, broaden multi-label defect types, and add defect-aware embeddings.
+Built so far: data pipeline, embeddings, contrastive fine-tuning, clustering, evaluation, inference, reports, folder visualization, UI, Phase 7 crack/runway analysis, Phase 8 full-training YOLO mobile students, and Phase 9 multi-domain structural defect detection. Next (see `PLAN.md`): resolve native CoreML export, add more non-crack structural datasets, and consider defect-aware embedding fine-tuning.

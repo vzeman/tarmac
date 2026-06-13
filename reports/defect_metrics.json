@@ -1,0 +1,833 @@
+{
+  "checkpoint": "models/defect_head.pt",
+  "metadata": "models/defect_head.json",
+  "embeddings": "data/processed/defect_embeddings.parquet",
+  "label_vocab": [
+    "crack",
+    "spalling",
+    "efflorescence",
+    "exposed_rebar",
+    "corrosion"
+  ],
+  "thresholds": {
+    "crack": 0.41999998688697815,
+    "spalling": 0.949999988079071,
+    "efflorescence": 0.949999988079071,
+    "exposed_rebar": 0.875,
+    "corrosion": 0.8949999809265137
+  },
+  "best_epoch": 39,
+  "best_val_macro_ap": 0.9653761563644938,
+  "val": {
+    "per_label": {
+      "crack": {
+        "precision": 0.9568901071517568,
+        "recall": 0.9230769230769231,
+        "f1": 0.9396794322770097,
+        "ap": 0.9862909081784201,
+        "support": 4160,
+        "predicted_positive": 4013,
+        "threshold": 0.41999998688697815
+      },
+      "spalling": {
+        "precision": 0.9119804400977995,
+        "recall": 0.888095238095238,
+        "f1": 0.8998793727382388,
+        "ap": 0.9643694276656339,
+        "support": 420,
+        "predicted_positive": 409,
+        "threshold": 0.949999988079071
+      },
+      "efflorescence": {
+        "precision": 0.9481865284974094,
+        "recall": 0.9581151832460733,
+        "f1": 0.953125,
+        "ap": 0.979481061414649,
+        "support": 382,
+        "predicted_positive": 386,
+        "threshold": 0.949999988079071
+      },
+      "exposed_rebar": {
+        "precision": 0.946969696969697,
+        "recall": 0.9715025906735751,
+        "f1": 0.959079283887468,
+        "ap": 0.9877691916804268,
+        "support": 386,
+        "predicted_positive": 396,
+        "threshold": 0.875
+      },
+      "corrosion": {
+        "precision": 0.8248337028824834,
+        "recall": 0.9370277078085643,
+        "f1": 0.8773584905660378,
+        "ap": 0.9089701928833391,
+        "support": 397,
+        "predicted_positive": 451,
+        "threshold": 0.8949999809265137
+      }
+    },
+    "per_domain": {
+      "overall": {
+        "rows": 7891,
+        "positive_label_assignments": 5745,
+        "macro_label_count": 5,
+        "macro_precision": 0.9177720951198293,
+        "macro_recall": 0.9355635285800747,
+        "macro_f1": 0.9258243158937509,
+        "micro_f1": 0.9343859649122807,
+        "macro_ap": 0.9653761563644938,
+        "per_label": {
+          "crack": {
+            "precision": 0.9568901071517568,
+            "recall": 0.9230769230769231,
+            "f1": 0.9396794322770097,
+            "ap": 0.9862909081784201,
+            "support": 4160,
+            "predicted_positive": 4013,
+            "threshold": 0.41999998688697815
+          },
+          "spalling": {
+            "precision": 0.9119804400977995,
+            "recall": 0.888095238095238,
+            "f1": 0.8998793727382388,
+            "ap": 0.9643694276656339,
+            "support": 420,
+            "predicted_positive": 409,
+            "threshold": 0.949999988079071
+          },
+          "efflorescence": {
+            "precision": 0.9481865284974094,
+            "recall": 0.9581151832460733,
+            "f1": 0.953125,
+            "ap": 0.979481061414649,
+            "support": 382,
+            "predicted_positive": 386,
+            "threshold": 0.949999988079071
+          },
+          "exposed_rebar": {
+            "precision": 0.946969696969697,
+            "recall": 0.9715025906735751,
+            "f1": 0.959079283887468,
+            "ap": 0.9877691916804268,
+            "support": 386,
+            "predicted_positive": 396,
+            "threshold": 0.875
+          },
+          "corrosion": {
+            "precision": 0.8248337028824834,
+            "recall": 0.9370277078085643,
+            "f1": 0.8773584905660378,
+            "ap": 0.9089701928833391,
+            "support": 397,
+            "predicted_positive": 451,
+            "threshold": 0.8949999809265137
+          }
+        }
+      },
+      "bridge": {
+        "rows": 2087,
+        "positive_label_assignments": 2318,
+        "macro_label_count": 5,
+        "macro_precision": 0.9036802093826933,
+        "macro_recall": 0.9149317728869274,
+        "macro_f1": 0.9082640495659181,
+        "micro_f1": 0.89995687796464,
+        "macro_ap": 0.9551193982062642,
+        "per_label": {
+          "crack": {
+            "precision": 0.8864306784660767,
+            "recall": 0.819918144611187,
+            "f1": 0.8518781006378455,
+            "ap": 0.9346193061360343,
+            "support": 733,
+            "predicted_positive": 678,
+            "threshold": 0.41999998688697815
+          },
+          "spalling": {
+            "precision": 0.9119804400977995,
+            "recall": 0.888095238095238,
+            "f1": 0.8998793727382388,
+            "ap": 0.9645691984568575,
+            "support": 420,
+            "predicted_positive": 409,
+            "threshold": 0.949999988079071
+          },
+          "efflorescence": {
+            "precision": 0.9481865284974094,
+            "recall": 0.9581151832460733,
+            "f1": 0.953125,
+            "ap": 0.9795453650207977,
+            "support": 382,
+            "predicted_positive": 386,
+            "threshold": 0.949999988079071
+          },
+          "exposed_rebar": {
+            "precision": 0.946969696969697,
+            "recall": 0.9715025906735751,
+            "f1": 0.959079283887468,
+            "ap": 0.9877932289356602,
+            "support": 386,
+            "predicted_positive": 396,
+            "threshold": 0.875
+          },
+          "corrosion": {
+            "precision": 0.8248337028824834,
+            "recall": 0.9370277078085643,
+            "f1": 0.8773584905660378,
+            "ap": 0.9090698924819711,
+            "support": 397,
+            "predicted_positive": 451,
+            "threshold": 0.8949999809265137
+          }
+        }
+      },
+      "building": {
+        "rows": 1261,
+        "positive_label_assignments": 596,
+        "macro_label_count": 1,
+        "macro_precision": 0.8716819963579123,
+        "macro_recall": 0.8645998385224807,
+        "macro_f1": 0.8661866627015823,
+        "micro_f1": 0.852603706972639,
+        "macro_ap": 0.9366322472223142,
+        "per_label": {
+          "crack": {
+            "precision": 0.8994413407821229,
+            "recall": 0.8104026845637584,
+            "f1": 0.852603706972639,
+            "ap": 0.9366322472223142,
+            "support": 596,
+            "predicted_positive": 537,
+            "threshold": 0.41999998688697815
+          },
+          "spalling": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "efflorescence": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "exposed_rebar": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.875
+          },
+          "corrosion": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.8949999809265137
+          }
+        }
+      },
+      "concrete_generic": {
+        "rows": 2930,
+        "positive_label_assignments": 2250,
+        "macro_label_count": 1,
+        "macro_precision": 0.996396179342883,
+        "macro_recall": 0.9969052287581699,
+        "macro_f1": 0.9966504108431966,
+        "micro_f1": 0.9984440986885975,
+        "macro_ap": 0.9998916245105696,
+        "per_label": {
+          "crack": {
+            "precision": 0.9986660738105825,
+            "recall": 0.9982222222222222,
+            "f1": 0.9984440986885975,
+            "ap": 0.9998916245105696,
+            "support": 2250,
+            "predicted_positive": 2249,
+            "threshold": 0.41999998688697815
+          },
+          "spalling": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "efflorescence": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "exposed_rebar": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.875
+          },
+          "corrosion": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.8949999809265137
+          }
+        }
+      },
+      "pavement": {
+        "rows": 1383,
+        "positive_label_assignments": 398,
+        "macro_label_count": 1,
+        "macro_precision": 0.9199306581544069,
+        "macro_recall": 0.8973139810728771,
+        "macro_f1": 0.907621764345325,
+        "micro_f1": 0.8661417322834646,
+        "macro_ap": 0.9380368352885088,
+        "per_label": {
+          "crack": {
+            "precision": 0.9065934065934066,
+            "recall": 0.8291457286432161,
+            "f1": 0.8661417322834646,
+            "ap": 0.9380368352885088,
+            "support": 398,
+            "predicted_positive": 364,
+            "threshold": 0.41999998688697815
+          },
+          "spalling": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "efflorescence": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "exposed_rebar": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.875
+          },
+          "corrosion": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.8949999809265137
+          }
+        }
+      },
+      "runway": {
+        "rows": 230,
+        "positive_label_assignments": 183,
+        "macro_label_count": 1,
+        "macro_precision": 0.9531531531531532,
+        "macro_recall": 0.9386117893268224,
+        "macro_f1": 0.9456521739130435,
+        "micro_f1": 0.9782608695652174,
+        "macro_ap": 0.9958526109416913,
+        "per_label": {
+          "crack": {
+            "precision": 0.972972972972973,
+            "recall": 0.9836065573770492,
+            "f1": 0.9782608695652174,
+            "ap": 0.9958526109416913,
+            "support": 183,
+            "predicted_positive": 185,
+            "threshold": 0.41999998688697815
+          },
+          "spalling": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "efflorescence": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "exposed_rebar": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.875
+          },
+          "corrosion": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.8949999809265137
+          }
+        }
+      }
+    },
+    "summary": {
+      "rows": 7891,
+      "exact_match": 0.9139526042326701,
+      "true_label_assignments": 5745,
+      "predicted_label_assignments": 5655,
+      "true_positive_assignments": 5326,
+      "false_positive_assignments": 329,
+      "false_negative_assignments": 419,
+      "images_with_any_true_defect": 4890,
+      "images_with_any_predicted_defect": 4734,
+      "mean_true_labels_per_image": 0.7280446077810163,
+      "mean_predicted_labels_per_image": 0.7166392092257001
+    }
+  },
+  "test": {
+    "per_label": {
+      "crack": {
+        "precision": 0.9582395598899724,
+        "recall": 0.9211538461538461,
+        "f1": 0.9393308003431793,
+        "ap": 0.9868396889888585,
+        "support": 4160,
+        "predicted_positive": 3999,
+        "threshold": 0.41999998688697815
+      },
+      "spalling": {
+        "precision": 0.8991416309012875,
+        "recall": 0.8914893617021277,
+        "f1": 0.8952991452991453,
+        "ap": 0.9660497336978044,
+        "support": 470,
+        "predicted_positive": 466,
+        "threshold": 0.949999988079071
+      },
+      "efflorescence": {
+        "precision": 0.9147058823529411,
+        "recall": 0.9510703363914373,
+        "f1": 0.9325337331334332,
+        "ap": 0.9675123211310126,
+        "support": 327,
+        "predicted_positive": 340,
+        "threshold": 0.949999988079071
+      },
+      "exposed_rebar": {
+        "precision": 0.9359823399558499,
+        "recall": 0.9837587006960556,
+        "f1": 0.9592760180995475,
+        "ap": 0.9863393198628041,
+        "support": 431,
+        "predicted_positive": 453,
+        "threshold": 0.875
+      },
+      "corrosion": {
+        "precision": 0.8047210300429185,
+        "recall": 0.9036144578313253,
+        "f1": 0.8513053348467651,
+        "ap": 0.898188392128875,
+        "support": 415,
+        "predicted_positive": 466,
+        "threshold": 0.8949999809265137
+      }
+    },
+    "per_domain": {
+      "overall": {
+        "rows": 7889,
+        "positive_label_assignments": 5803,
+        "macro_label_count": 5,
+        "macro_precision": 0.9025580886285939,
+        "macro_recall": 0.9302173405549585,
+        "macro_f1": 0.915549006344414,
+        "micro_f1": 0.930163962869784,
+        "macro_ap": 0.960985891161871,
+        "per_label": {
+          "crack": {
+            "precision": 0.9582395598899724,
+            "recall": 0.9211538461538461,
+            "f1": 0.9393308003431793,
+            "ap": 0.9868396889888585,
+            "support": 4160,
+            "predicted_positive": 3999,
+            "threshold": 0.41999998688697815
+          },
+          "spalling": {
+            "precision": 0.8991416309012875,
+            "recall": 0.8914893617021277,
+            "f1": 0.8952991452991453,
+            "ap": 0.9660497336978044,
+            "support": 470,
+            "predicted_positive": 466,
+            "threshold": 0.949999988079071
+          },
+          "efflorescence": {
+            "precision": 0.9147058823529411,
+            "recall": 0.9510703363914373,
+            "f1": 0.9325337331334332,
+            "ap": 0.9675123211310126,
+            "support": 327,
+            "predicted_positive": 340,
+            "threshold": 0.949999988079071
+          },
+          "exposed_rebar": {
+            "precision": 0.9359823399558499,
+            "recall": 0.9837587006960556,
+            "f1": 0.9592760180995475,
+            "ap": 0.9863393198628041,
+            "support": 431,
+            "predicted_positive": 453,
+            "threshold": 0.875
+          },
+          "corrosion": {
+            "precision": 0.8047210300429185,
+            "recall": 0.9036144578313253,
+            "f1": 0.8513053348467651,
+            "ap": 0.898188392128875,
+            "support": 415,
+            "predicted_positive": 466,
+            "threshold": 0.8949999809265137
+          }
+        }
+      },
+      "bridge": {
+        "rows": 2132,
+        "positive_label_assignments": 2402,
+        "macro_label_count": 5,
+        "macro_precision": 0.8896583571455048,
+        "macro_recall": 0.9077784026812379,
+        "macro_f1": 0.8975307024306884,
+        "micro_f1": 0.8903199002908184,
+        "macro_ap": 0.9506696310948491,
+        "per_label": {
+          "crack": {
+            "precision": 0.893740902474527,
+            "recall": 0.8089591567852438,
+            "f1": 0.8492392807745505,
+            "ap": 0.9347274442674435,
+            "support": 759,
+            "predicted_positive": 687,
+            "threshold": 0.41999998688697815
+          },
+          "spalling": {
+            "precision": 0.8991416309012875,
+            "recall": 0.8914893617021277,
+            "f1": 0.8952991452991453,
+            "ap": 0.9663820845998138,
+            "support": 470,
+            "predicted_positive": 466,
+            "threshold": 0.949999988079071
+          },
+          "efflorescence": {
+            "precision": 0.9147058823529411,
+            "recall": 0.9510703363914373,
+            "f1": 0.9325337331334332,
+            "ap": 0.9675239818088501,
+            "support": 327,
+            "predicted_positive": 340,
+            "threshold": 0.949999988079071
+          },
+          "exposed_rebar": {
+            "precision": 0.9359823399558499,
+            "recall": 0.9837587006960556,
+            "f1": 0.9592760180995475,
+            "ap": 0.9863579338603863,
+            "support": 431,
+            "predicted_positive": 453,
+            "threshold": 0.875
+          },
+          "corrosion": {
+            "precision": 0.8047210300429185,
+            "recall": 0.9036144578313253,
+            "f1": 0.8513053348467651,
+            "ap": 0.8983567109377519,
+            "support": 415,
+            "predicted_positive": 466,
+            "threshold": 0.8949999809265137
+          }
+        }
+      },
+      "building": {
+        "rows": 1234,
+        "positive_label_assignments": 580,
+        "macro_label_count": 1,
+        "macro_precision": 0.8844761729570637,
+        "macro_recall": 0.8746889170093852,
+        "macro_f1": 0.8768128673651929,
+        "micro_f1": 0.8626373626373627,
+        "macro_ap": 0.9460674238360924,
+        "per_label": {
+          "crack": {
+            "precision": 0.919921875,
+            "recall": 0.8120689655172414,
+            "f1": 0.8626373626373627,
+            "ap": 0.9460674238360924,
+            "support": 580,
+            "predicted_positive": 512,
+            "threshold": 0.41999998688697815
+          },
+          "spalling": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "efflorescence": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "exposed_rebar": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.875
+          },
+          "corrosion": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.8949999809265137
+          }
+        }
+      },
+      "concrete_generic": {
+        "rows": 2930,
+        "positive_label_assignments": 2250,
+        "macro_label_count": 1,
+        "macro_precision": 0.9993342210386151,
+        "macro_recall": 0.9977941176470588,
+        "macro_f1": 0.9985615092272064,
+        "micro_f1": 0.9993337774816788,
+        "macro_ap": 0.999999605026024,
+        "per_label": {
+          "crack": {
+            "precision": 0.9986684420772304,
+            "recall": 1.0,
+            "f1": 0.9993337774816788,
+            "ap": 0.999999605026024,
+            "support": 2250,
+            "predicted_positive": 2253,
+            "threshold": 0.41999998688697815
+          },
+          "spalling": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "efflorescence": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "exposed_rebar": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.875
+          },
+          "corrosion": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.8949999809265137
+          }
+        }
+      },
+      "pavement": {
+        "rows": 1362,
+        "positive_label_assignments": 387,
+        "macro_label_count": 1,
+        "macro_precision": 0.9084889502762431,
+        "macro_recall": 0.8918982309679984,
+        "macro_f1": 0.8996413783779216,
+        "micro_f1": 0.8544726301735648,
+        "macro_ap": 0.9270175397259744,
+        "per_label": {
+          "crack": {
+            "precision": 0.8839779005524862,
+            "recall": 0.8268733850129198,
+            "f1": 0.8544726301735648,
+            "ap": 0.9270175397259744,
+            "support": 387,
+            "predicted_positive": 362,
+            "threshold": 0.41999998688697815
+          },
+          "spalling": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "efflorescence": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "exposed_rebar": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.875
+          },
+          "corrosion": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.8949999809265137
+          }
+        }
+      },
+      "runway": {
+        "rows": 231,
+        "positive_label_assignments": 184,
+        "macro_label_count": 1,
+        "macro_precision": 0.9022914218566392,
+        "macro_recall": 0.8958718778908419,
+        "macro_f1": 0.8990296354576449,
+        "micro_f1": 0.959349593495935,
+        "macro_ap": 0.9959280228385498,
+        "per_label": {
+          "crack": {
+            "precision": 0.9567567567567568,
+            "recall": 0.9619565217391305,
+            "f1": 0.959349593495935,
+            "ap": 0.9959280228385498,
+            "support": 184,
+            "predicted_positive": 185,
+            "threshold": 0.41999998688697815
+          },
+          "spalling": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "efflorescence": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.949999988079071
+          },
+          "exposed_rebar": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.875
+          },
+          "corrosion": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "ap": NaN,
+            "support": 0,
+            "predicted_positive": 0,
+            "threshold": 0.8949999809265137
+          }
+        }
+      }
+    },
+    "summary": {
+      "rows": 7889,
+      "exact_match": 0.908860438585372,
+      "true_label_assignments": 5803,
+      "predicted_label_assignments": 5724,
+      "true_positive_assignments": 5361,
+      "false_positive_assignments": 363,
+      "false_negative_assignments": 442,
+      "images_with_any_true_defect": 4887,
+      "images_with_any_predicted_defect": 4727,
+      "mean_true_labels_per_image": 0.735581188997338,
+      "mean_predicted_labels_per_image": 0.7255672455317531
+    }
+  }
+}
