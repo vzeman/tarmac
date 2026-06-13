@@ -94,6 +94,7 @@ Crack detection is a separate binary track from the 1-5 quality grader. Crack da
 uv run tarmac download cracks-concrete-pavement
 uv run tarmac download crack500          # optional mask dataset mirror
 uv run tarmac download deepcrack         # optional mask dataset mirror
+uv run tarmac download runway-roboflow   # requires ROBOFLOW_API_KEY
 uv run tarmac prepare-cracks
 uv run tarmac train-crack                # requires Apple MPS; no CPU fallback
 uv run tarmac evaluate-crack
@@ -101,7 +102,7 @@ uv run tarmac evaluate-crack
 
 When `models/crack_head.pt` exists, `tarmac analyze` adds `tile_crack_prob` and `tile_crack` to `tiles.parquet`, plus per-frame `crack_ratio` and `frame_has_crack` in `results.parquet`. `tarmac report` then includes a **Cracked sections** panel with a crack-ratio timeline and 3x2 red tile overlays showing which road/runway sections are cracked.
 
-Runway-specific Roboflow data is supported but requires a free API key:
+Runway-specific Roboflow data is integrated through the Roboflow REST API and requires a free API key:
 
 ```bash
 export ROBOFLOW_API_KEY=...
@@ -109,7 +110,7 @@ uv run tarmac download runway-roboflow
 uv run tarmac prepare-cracks
 ```
 
-Get the key from Roboflow account settings. The downloader uses the Roboflow REST API for `revathi-deusp/runway-crack-detection-1iq1l` and converts bounding boxes into tile-level crack labels.
+Get the key from Roboflow account settings. The downloader uses the Roboflow REST API for `revathi-deusp/runway-crack-detection-1iq1l` and converts crack/mildcrack/severecrack bounding boxes into tile-level crack labels. Current held-out runway-only metrics are: validation F1 `0.9130`, ROC-AUC `0.9156`; test F1 `0.9091`, ROC-AUC `0.9841`. See `reports/CRACK_DETECTION.md` for the full per-source table.
 
 ### Visualize a folder of images in the vector space
 
@@ -136,7 +137,7 @@ Upload a photo/video or point at a local path, run the pipeline, and browse the 
 | [RTK](https://data.mendeley.com/datasets/fxy5khmhpb/1) | 77,547 | asphalt/paved/unpaved + defects | Scale-up (downloader included) |
 | [Concrete & Pavement Crack](https://data.mendeley.com/datasets/429vzbgmbx/1) | 30,000 | crack / non-crack | Crack classifier head |
 | [CRACK500](https://github.com/fyangneil/pavement-crack-detection), [DeepCrack](https://github.com/yhlleo/DeepCrack) | masks | pixel crack masks | Crack mask data, downloadable |
-| Roboflow runway crack detection | varies | runway crack bounding boxes | Optional runway-specific labels with `ROBOFLOW_API_KEY` |
+| Roboflow runway crack detection | 40 images / 240 tiles in current pull | runway crack bounding boxes | Runway-specific crack labels with `ROBOFLOW_API_KEY` |
 
 ## Project layout
 

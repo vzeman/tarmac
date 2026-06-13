@@ -20,6 +20,7 @@ from tqdm.auto import tqdm
 
 from tarmac.crack.model import CrackHead
 from tarmac.embedding.embedder import DINOV3_MODEL, HFBackboneEmbedder
+from tarmac.embedding.tiling import tile_boxes
 from tarmac.inference.analyze import load_active_artifacts
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -54,7 +55,8 @@ class CrackImageDataset(Dataset[dict[str, Any]]):
     def __getitem__(self, index: int) -> dict[str, Any]:
         row = self.frame.iloc[index]
         with Image.open(row["image_path"]) as image:
-            pixel_values = self.processor(images=image.convert("RGB"), return_tensors="pt")["pixel_values"][0]
+            cropped = crop_manifest_image(image, str(row.get("tile", "full")))
+            pixel_values = self.processor(images=cropped, return_tensors="pt")["pixel_values"][0]
         return {
             "pixel_values": pixel_values,
             "label": float(row["has_crack"]),
@@ -252,6 +254,20 @@ def embed_crack_manifest(
         labels.extend(float(x) for x in batch["label"])
         splits.extend(str(x) for x in batch["split"])
     return np.vstack(vectors), np.array(labels, dtype="float32"), np.array(splits)
+
+
+def crop_manifest_image(image: Image.Image, tile: str) -> Image.Image:
+    rgb = image.convert("RGB")
+    if not tile.startswith("tile_"):
+        return rgb
+    try:
+        tile_index = int(tile.split("_")[-1])
+    except ValueError:
+        return rgb
+    boxes = tile_boxes(*rgb.size)
+    if tile_index < 0 or tile_index >= len(boxes):
+        return rgb
+    return rgb.crop(boxes[tile_index])
 
 
 @torch.inference_mode()

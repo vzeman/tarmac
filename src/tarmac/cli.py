@@ -84,7 +84,8 @@ def download_runway_roboflow_cmd(
 
     result = download_runway_roboflow(output_dir=output_dir, version=version)
     console.print(
-        f"Runway Roboflow ready: images={result.image_count}, tile_labels={result.tile_label_count}"
+        f"Runway Roboflow ready: images={result.image_count}, tile_labels={result.tile_label_count}, "
+        f"positive_tiles={result.positive_tile_count}, negative_tiles={result.negative_tile_count}"
     )
 
 
@@ -374,7 +375,7 @@ def evaluate_crack(
         batch_size=batch_size,
         device_name=device,
     )
-    test = result["test"]
+    test = result["test"]["overall"]
     console.print(
         f"Crack metrics written to {metrics}; threshold={result['threshold']:.3f} "
         f"test_f1={test['f1']:.4f} precision={test['precision']:.4f} recall={test['recall']:.4f}"

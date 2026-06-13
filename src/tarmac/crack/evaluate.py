@@ -45,12 +45,13 @@ def evaluate_crack_head(
     with torch.inference_mode():
         probs = torch.sigmoid(head(torch.from_numpy(embeddings).float())).numpy()
 
+    sources = eval_manifest["source_dataset"].astype(str).to_numpy()
     val_mask = splits == "val"
     threshold = choose_threshold(labels[val_mask].astype("int64"), probs[val_mask])
     result = {
         "threshold": threshold,
-        "val": _split_metrics(labels[val_mask], probs[val_mask], threshold),
-        "test": _split_metrics(labels[splits == "test"], probs[splits == "test"], threshold),
+        "val": _metrics_by_source(labels, probs, splits, sources, "val", threshold),
+        "test": _metrics_by_source(labels, probs, splits, sources, "test", threshold),
         "checkpoint": str(checkpoint_path),
         "manifest": str(manifest_path),
     }
@@ -88,17 +89,46 @@ def _split_metrics(labels: np.ndarray, probs: np.ndarray, threshold: float) -> d
     }
 
 
+def _metrics_by_source(
+    labels: np.ndarray,
+    probs: np.ndarray,
+    splits: np.ndarray,
+    sources: np.ndarray,
+    split: str,
+    threshold: float,
+) -> dict[str, dict[str, float]]:
+    split_mask = splits == split
+    groups = {
+        "overall": split_mask,
+        "runway_roboflow": split_mask & (sources == "runway_roboflow"),
+        "concrete_pavement": split_mask & (sources == "cracks_concrete_pavement"),
+    }
+    return {
+        name: _split_metrics(labels[mask], probs[mask], threshold)
+        for name, mask in groups.items()
+        if int(mask.sum()) > 0
+    }
+
+
 def _markdown_report(result: dict[str, Any]) -> str:
-    val = result["val"]
-    test = result["test"]
+    rows = []
+    for split in ("val", "test"):
+        for source, metrics in result[split].items():
+            rows.append(
+                "| {split} | {source} | {precision:.4f} | {recall:.4f} | {f1:.4f} | "
+                "{accuracy:.4f} | {roc_auc:.4f} | {count} | {positive_count} |".format(
+                    split=split,
+                    source=source,
+                    **metrics,
+                )
+            )
     return f"""# Crack Detection
 
-Crack detection is trained and evaluated as a separate binary track from quality grading.
+Crack detection is trained and evaluated as a separate binary track from quality grading. This run includes runway-specific Roboflow imagery (`runway_roboflow`) alongside the concrete/pavement crack dataset.
 
 Chosen threshold: `{result["threshold"]:.3f}` (max F1 on validation).
 
-| Split | Precision | Recall | F1 | Accuracy | ROC-AUC | Count | Positives |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| val | {val["precision"]:.4f} | {val["recall"]:.4f} | {val["f1"]:.4f} | {val["accuracy"]:.4f} | {val["roc_auc"]:.4f} | {val["count"]} | {val["positive_count"]} |
-| test | {test["precision"]:.4f} | {test["recall"]:.4f} | {test["f1"]:.4f} | {test["accuracy"]:.4f} | {test["roc_auc"]:.4f} | {test["count"]} | {test["positive_count"]} |
+| Split | Source | Precision | Recall | F1 | Accuracy | ROC-AUC | Count | Positives |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+{chr(10).join(rows)}
 """

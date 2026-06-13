@@ -32,9 +32,9 @@ def build_crack_manifest(
             f"No crack datasets found under {raw_dir}. Run `uv run tarmac download cracks-concrete-pavement` first."
         )
 
-    frame = pd.DataFrame(rows).drop_duplicates(subset=["image_path", "source_dataset"]).reset_index(drop=True)
+    frame = pd.DataFrame(rows).drop_duplicates(subset=["image_path", "source_dataset", "tile"]).reset_index(drop=True)
     frame["has_crack"] = frame["has_crack"].astype("int8")
-    frame["split"] = _stratified_splits(frame["has_crack"].to_numpy(), seed=SEED)
+    frame["split"] = _stratified_source_splits(frame, seed=SEED)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(output_path, index=False)
     stats = (
@@ -57,6 +57,7 @@ def _concrete_pavement_rows(dataset_dir: Path) -> list[dict[str, object]]:
                 {
                     "image_path": str(image_path.resolve()),
                     "source_dataset": "cracks_concrete_pavement",
+                    "tile": "full",
                     "has_crack": label,
                 }
             )
@@ -78,6 +79,7 @@ def _folder_binary_rows(dataset_dir: Path, source_dataset: str) -> list[dict[str
             {
                 "image_path": str(image_path.resolve()),
                 "source_dataset": source_dataset,
+                "tile": "full",
                 "has_crack": label,
             }
         )
@@ -85,22 +87,58 @@ def _folder_binary_rows(dataset_dir: Path, source_dataset: str) -> list[dict[str
 
 
 def _runway_rows(dataset_dir: Path) -> list[dict[str, object]]:
-    labels_path = dataset_dir / "tile_labels.jsonl"
+    labels_path = dataset_dir / "tile_labels.parquet"
+    if not labels_path.exists():
+        labels_path = dataset_dir / "tile_labels.csv"
+    if not labels_path.exists():
+        labels_path = dataset_dir / "tile_labels.jsonl"
     if not labels_path.exists():
         return []
     rows: list[dict[str, object]] = []
-    for line in labels_path.read_text().splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
+    if labels_path.suffix == ".parquet":
+        records = pd.read_parquet(labels_path).to_dict("records")
+    elif labels_path.suffix == ".csv":
+        records = pd.read_csv(labels_path).to_dict("records")
+    else:
+        records = [json.loads(line) for line in labels_path.read_text().splitlines() if line.strip()]
+    for row in records:
         rows.append(
             {
                 "image_path": str(Path(row["image_path"]).resolve()),
                 "source_dataset": "runway_roboflow",
+                "tile": str(row.get("tile", "full")),
                 "has_crack": int(row["has_crack"]),
             }
         )
     return rows
+
+
+def _stratified_source_splits(frame: pd.DataFrame, seed: int) -> list[str]:
+    rng = np.random.default_rng(seed)
+    splits = np.empty(len(frame), dtype=object)
+    for (_source, _label), group in frame.groupby(["source_dataset", "has_crack"], sort=True, observed=True):
+        indexes = group.index.to_numpy().copy()
+        rng.shuffle(indexes)
+        train_end, val_end = _split_bounds(len(indexes))
+        splits[indexes[:train_end]] = "train"
+        splits[indexes[train_end:val_end]] = "val"
+        splits[indexes[val_end:]] = "test"
+    return [str(x) for x in splits]
+
+
+def _split_bounds(count: int) -> tuple[int, int]:
+    if count <= 0:
+        return 0, 0
+    if count == 1:
+        return 1, 1
+    if count == 2:
+        return 1, 2
+    train_count = max(1, int(round(0.70 * count)))
+    val_count = max(1, int(round(0.15 * count)))
+    if train_count + val_count >= count:
+        train_count = max(1, count - 2)
+        val_count = 1
+    return train_count, train_count + val_count
 
 
 def _stratified_splits(labels: np.ndarray, seed: int) -> list[str]:
