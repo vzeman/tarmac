@@ -33,6 +33,61 @@ def download_streetsurfacevis_cmd(
     )
 
 
+@download_app.command("cracks-concrete-pavement")
+def download_cracks_concrete_pavement_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/cracks_concrete_pavement"),
+        "--output-dir",
+        "-o",
+        help="Directory for the Mendeley concrete/pavement crack dataset.",
+    ),
+) -> None:
+    """Download Mendeley 429vzbgmbx crack/non-crack images."""
+    from tarmac.datasets.cracks_concrete_pavement import download_cracks_concrete_pavement
+
+    result = download_cracks_concrete_pavement(output_dir)
+    console.print(
+        f"Concrete/pavement cracks ready: positive={result.positive_count}, "
+        f"negative={result.negative_count}, dir={result.output_dir}"
+    )
+
+
+@download_app.command("crack500")
+def download_crack500_cmd(
+    output_dir: Path = typer.Option(Path("data/raw/crack500"), "--output-dir", "-o"),
+) -> None:
+    """Download CRACK500 from known GitHub mirrors when available."""
+    from tarmac.datasets.crack_masks import download_crack500
+
+    result = download_crack500(output_dir)
+    console.print(result.message)
+
+
+@download_app.command("deepcrack")
+def download_deepcrack_cmd(
+    output_dir: Path = typer.Option(Path("data/raw/deepcrack"), "--output-dir", "-o"),
+) -> None:
+    """Download DeepCrack from GitHub when available."""
+    from tarmac.datasets.crack_masks import download_deepcrack
+
+    result = download_deepcrack(output_dir)
+    console.print(result.message)
+
+
+@download_app.command("runway-roboflow")
+def download_runway_roboflow_cmd(
+    output_dir: Path = typer.Option(Path("data/raw/runway_roboflow"), "--output-dir", "-o"),
+    version: int | None = typer.Option(None, "--version", help="Roboflow project version."),
+) -> None:
+    """Download runway-specific crack boxes from Roboflow Universe."""
+    from tarmac.datasets.runway_roboflow import download_runway_roboflow
+
+    result = download_runway_roboflow(output_dir=output_dir, version=version)
+    console.print(
+        f"Runway Roboflow ready: images={result.image_count}, tile_labels={result.tile_label_count}"
+    )
+
+
 @app.command()
 def prepare(
     raw_dir: Path = typer.Option(Path("data/raw"), help="Raw dataset root."),
@@ -45,6 +100,21 @@ def prepare(
 
     manifest = build_manifest(raw_dir=raw_dir, output_path=output)
     console.print(f"Manifest written to {manifest.path} ({manifest.row_count} rows)")
+    console.print(manifest.stats.to_string(index=False))
+
+
+@app.command("prepare-cracks")
+def prepare_cracks(
+    raw_dir: Path = typer.Option(Path("data/raw"), help="Raw dataset root."),
+    output: Path = typer.Option(
+        Path("data/processed/crack_manifest.parquet"), help="Crack manifest output path."
+    ),
+) -> None:
+    """Build the separate crack-detection parquet manifest."""
+    from tarmac.datasets.crack_manifest import build_crack_manifest
+
+    manifest = build_crack_manifest(raw_dir=raw_dir, output_path=output)
+    console.print(f"Crack manifest written to {manifest.path} ({manifest.row_count} rows)")
     console.print(manifest.stats.to_string(index=False))
 
 
@@ -180,6 +250,38 @@ def train(
     )
 
 
+@app.command("train-crack")
+def train_crack(
+    manifest: Path = typer.Option(
+        Path("data/processed/crack_manifest.parquet"), help="Input crack manifest parquet."
+    ),
+    checkpoint: Path = typer.Option(Path("models/crack_head.pt"), help="Best crack head output."),
+    metadata: Path = typer.Option(Path("models/crack_head.json"), help="Training metadata JSON."),
+    epochs: int = typer.Option(8, help="Maximum crack-head epochs."),
+    batch_size: int = typer.Option(128, help="Embedding/head batch size."),
+    lr: float = typer.Option(1e-3, help="Crack-head AdamW learning rate."),
+    patience: int = typer.Option(3, help="Early-stopping patience."),
+    resume: bool = typer.Option(False, help="Resume from latest crack checkpoint."),
+) -> None:
+    """Train a binary crack classifier head on frozen active-backbone embeddings."""
+    from tarmac.crack.train import train_crack_head
+
+    result = train_crack_head(
+        manifest_path=manifest,
+        output_checkpoint=checkpoint,
+        output_metadata=metadata,
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+        patience=patience,
+        resume=resume,
+    )
+    console.print(
+        f"Crack training complete: best_epoch={result['best_epoch']} "
+        f"best_val_f1={result['best_val_f1']:.4f}; checkpoint={result['checkpoint']}"
+    )
+
+
 @app.command()
 def evaluate(
     embeddings: Path = typer.Option(
@@ -247,6 +349,35 @@ def evaluate(
     console.print(
         f"Metrics written to {metrics}; backbone={result['backbone']} "
         f"chosen_k={result['chosen_k']}"
+    )
+
+
+@app.command("evaluate-crack")
+def evaluate_crack(
+    manifest: Path = typer.Option(
+        Path("data/processed/crack_manifest.parquet"), help="Input crack manifest parquet."
+    ),
+    checkpoint: Path = typer.Option(Path("models/crack_head.pt"), help="Crack head checkpoint."),
+    metrics: Path = typer.Option(Path("reports/crack_metrics.json"), help="Metrics JSON output."),
+    report_path: Path = typer.Option(Path("reports/CRACK_DETECTION.md"), help="Markdown report output."),
+    batch_size: int = typer.Option(128, help="Embedding batch size."),
+    device: str = typer.Option("auto", help="Embedding device: auto, mps, or cpu."),
+) -> None:
+    """Evaluate the crack classifier on val and test splits."""
+    from tarmac.crack.evaluate import evaluate_crack_head
+
+    result = evaluate_crack_head(
+        manifest_path=manifest,
+        checkpoint_path=checkpoint,
+        metrics_path=metrics,
+        report_path=report_path,
+        batch_size=batch_size,
+        device_name=device,
+    )
+    test = result["test"]
+    console.print(
+        f"Crack metrics written to {metrics}; threshold={result['threshold']:.3f} "
+        f"test_f1={test['f1']:.4f} precision={test['precision']:.4f} recall={test['recall']:.4f}"
     )
 
 

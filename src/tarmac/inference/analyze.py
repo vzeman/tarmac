@@ -11,7 +11,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import faiss
 import numpy as np
 import pandas as pd
 import torch
@@ -22,6 +21,7 @@ from tqdm.auto import tqdm
 
 from tarmac.embedding.embedder import DINOV3_MODEL, HFBackboneEmbedder
 from tarmac.embedding.tiling import make_embedding_inputs
+from tarmac.crack.model import CrackHead
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -50,10 +50,6 @@ def analyze_path(
     device: str = "cpu",
 ) -> dict[str, Any]:
     torch.set_num_threads(1)
-    try:
-        faiss.omp_set_num_threads(1)
-    except AttributeError:
-        pass
     input_path = input_path.expanduser().resolve()
     if not input_path.exists():
         raise FileNotFoundError(f"Input path does not exist: {input_path}")
@@ -88,13 +84,6 @@ def analyze_path(
 
     try:
         ref_df, ref_embeddings = load_reference_embeddings(artifacts.embeddings_path)
-        index = faiss.read_index(str(artifacts.faiss_index_path))
-        if index.ntotal != len(ref_embeddings):
-            raise RuntimeError(
-                f"FAISS index rows ({index.ntotal}) do not match reference embeddings ({len(ref_embeddings)})"
-            )
-        if non_road_threshold is None:
-            non_road_threshold = calibrate_non_road_threshold(artifacts.embeddings_path, index, k=k)
         centroids = np.load(artifacts.centroids_path).astype("float32")
         centroids = normalize_rows(centroids)
         embedder = HFBackboneEmbedder(
@@ -104,6 +93,20 @@ def analyze_path(
             device_name=device,
             attn_implementation="eager",
         )
+        import faiss
+
+        try:
+            faiss.omp_set_num_threads(1)
+        except AttributeError:
+            pass
+        index = faiss.read_index(str(artifacts.faiss_index_path))
+        if index.ntotal != len(ref_embeddings):
+            raise RuntimeError(
+                f"FAISS index rows ({index.ntotal}) do not match reference embeddings ({len(ref_embeddings)})"
+            )
+        if non_road_threshold is None:
+            non_road_threshold = calibrate_non_road_threshold(artifacts.embeddings_path, index, k=k)
+        crack_detector = load_crack_detector()
         rows, tile_rows = analyze_frames(
             frame_paths=frame_paths,
             input_type=input_type,
@@ -116,6 +119,7 @@ def analyze_path(
             k=k,
             non_road_threshold=non_road_threshold,
             batch_size=batch_size,
+            crack_detector=crack_detector,
         )
     finally:
         if temp_dir_ctx is not None:
@@ -200,7 +204,7 @@ def load_reference_embeddings(path: Path) -> tuple[pd.DataFrame, np.ndarray]:
 
 def calibrate_non_road_threshold(
     embeddings_path: Path,
-    index: faiss.Index,
+    index: Any,
     k: int,
     target_pass_rate: float = 0.95,
     max_threshold: float = 0.45,
@@ -225,11 +229,12 @@ def analyze_frames(
     thumbs_dir: Path,
     embedder: HFBackboneEmbedder,
     reference_df: pd.DataFrame,
-    index: faiss.Index,
+    index: Any,
     centroids: np.ndarray,
     k: int,
     non_road_threshold: float,
     batch_size: int,
+    crack_detector: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     frame_records: list[dict[str, Any]] = []
     tile_records: list[dict[str, Any]] = []
@@ -293,9 +298,13 @@ def analyze_frames(
             k=k,
             threshold=non_road_threshold,
         )
+        crack_prob = predict_crack_probability(embedding, crack_detector)
+        crack_flag = bool(crack_prob >= float(crack_detector["threshold"])) if crack_detector else False
         tile_record = {
             "frame_index": int(item["frame_index"]),
             "tile": item["kind"],
+            "tile_crack_prob": crack_prob,
+            "tile_crack": crack_flag,
             **pred,
         }
         frame["tiles"].append(tile_record)
@@ -311,11 +320,13 @@ def analyze_frames(
             predicted_quality = int(round(float(np.median(qualities))))
             surface_type = Counter(surfaces).most_common(1)[0][0]
             road_tile_count = len(road_tiles)
+            crack_ratio = float(np.mean([bool(tile.get("tile_crack", False)) for tile in road_tiles]))
         else:
             predicted_quality = None
             surface_type = "non_road"
             confidence = 0.0
             road_tile_count = 0
+            crack_ratio = 0.0
         frame_records.append(
             {
                 "frame_index": frame["frame_index"],
@@ -331,6 +342,8 @@ def analyze_frames(
                 "confidence": confidence,
                 "road_tile_count": road_tile_count,
                 "tile_count": len(frame["tiles"]),
+                "crack_ratio": crack_ratio,
+                "frame_has_crack": bool(crack_ratio > 0.0),
                 "tile_details": json.dumps(frame["tiles"]),
                 "embedding": frame["embedding"].astype("float32"),
             }
@@ -338,10 +351,39 @@ def analyze_frames(
     return frame_records, tile_records
 
 
+def load_crack_detector(
+    checkpoint_path: Path = Path("models/crack_head.pt"),
+    metrics_path: Path = Path("reports/crack_metrics.json"),
+) -> dict[str, Any] | None:
+    if not checkpoint_path.exists():
+        return None
+    state = torch.load(checkpoint_path, map_location="cpu")
+    input_dim = int(state.get("input_dim", 768))
+    head = CrackHead(input_dim=input_dim)
+    head.load_state_dict(state["head_state_dict"])
+    head.eval()
+    threshold = 0.5
+    if metrics_path.exists():
+        try:
+            threshold = float(json.loads(metrics_path.read_text()).get("threshold", threshold))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            threshold = 0.5
+    return {"head": head, "threshold": threshold, "checkpoint": str(checkpoint_path)}
+
+
+@torch.inference_mode()
+def predict_crack_probability(embedding: np.ndarray, crack_detector: dict[str, Any] | None) -> float:
+    if crack_detector is None:
+        return float("nan")
+    head = crack_detector["head"]
+    tensor = torch.from_numpy(embedding.reshape(1, -1).astype("float32"))
+    return float(torch.sigmoid(head(tensor))[0].item())
+
+
 def predict_tile(
     embedding: np.ndarray,
     reference_df: pd.DataFrame,
-    index: faiss.Index,
+    index: Any,
     centroids: np.ndarray,
     k: int,
     threshold: float,
@@ -391,6 +433,7 @@ def build_summary(
     dominant_surface = (
         str(frames_df["surface_type"].mode().iloc[0]) if not frames_df.empty else "unknown"
     )
+    crack_available = "crack_ratio" in frames_df.columns
     return {
         "input_path": str(input_path),
         "input_type": input_type,
@@ -401,6 +444,9 @@ def build_summary(
         "quality_distribution": quality_distribution,
         "dominant_surface_type": dominant_surface,
         "mean_confidence": float(frames_df["confidence"].mean()) if len(frames_df) else 0.0,
+        "mean_crack_ratio": float(frames_df["crack_ratio"].mean()) if crack_available and len(frames_df) else None,
+        "frames_with_crack": int(frames_df["frame_has_crack"].sum()) if crack_available and len(frames_df) else 0,
+        "crack_head": str(Path("models/crack_head.pt")) if Path("models/crack_head.pt").exists() else None,
         "active_suffix": artifacts.suffix,
         "checkpoint": str(artifacts.checkpoint_path),
         "reference_embeddings": str(artifacts.embeddings_path),
@@ -421,6 +467,9 @@ def print_summary(summary: dict[str, Any], console: Console | None = None) -> No
     table.add_row("Frames analyzed", str(summary["frames_analyzed"]))
     table.add_row("Dominant surface", str(summary["dominant_surface_type"]))
     table.add_row("Mean confidence", f"{summary['mean_confidence']:.3f}")
+    if summary.get("mean_crack_ratio") is not None:
+        table.add_row("Mean crack ratio", f"{summary['mean_crack_ratio']:.3f}")
+        table.add_row("Frames with cracks", str(summary.get("frames_with_crack", 0)))
     table.add_row("Quality distribution", json.dumps(summary["quality_distribution"]))
     table.add_row("Results", str(summary["results_parquet"]))
     table.add_row("Summary", str(Path(summary["out_dir"]) / "summary.json"))

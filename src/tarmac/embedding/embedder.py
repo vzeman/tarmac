@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import faiss
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -118,12 +117,13 @@ class HFBackboneEmbedder:
             model_name,
             allow_fallback=allow_fallback,
             attn_implementation=attn_implementation,
+            checkpoint=checkpoint,
         )
         if checkpoint_path is not None:
             state = checkpoint if checkpoint is not None else torch.load(checkpoint_path, map_location="cpu")
             model_state = state.get("model_state_dict", state)
             if isinstance(state, dict) and "model_state_dict" in state:
-                self.model.load_state_dict(model_state, strict=True, assign=True)
+                self.model.load_state_dict(model_state, strict=True)
             else:
                 missing, unexpected = self.model.load_state_dict(model_state, strict=False)
                 if unexpected:
@@ -154,6 +154,7 @@ class HFBackboneEmbedder:
         *,
         allow_fallback: bool,
         attn_implementation: str | None,
+        checkpoint: dict[str, Any] | None,
     ) -> tuple[Any, Any, str]:
         candidates = [model_name]
         if allow_fallback and model_name != DINOV2_MODEL:
@@ -186,6 +187,10 @@ class HFBackboneEmbedder:
                         DINOV2_MODEL,
                     )
                     continue
+                if _is_gated_dinov3_local_checkpoint(candidate, checkpoint):
+                    LOGGER.warning("Using local DINOv3 ViT-B/16 architecture from checkpoint metadata.")
+                    processor, model = _local_dinov3_vit_base()
+                    return processor, model, candidate
                 raise
         raise RuntimeError("Could not load any embedding backbone.")
 
@@ -253,6 +258,8 @@ def embed_manifest(
 
     info = embedder.info
     full_matrix = np.vstack(full_vectors).astype("float32")
+    import faiss
+
     index = faiss.IndexFlatIP(info.embedding_dim)
     index.add(full_matrix)
     faiss.write_index(index, str(faiss_index_path))
@@ -323,3 +330,33 @@ def _load_checkpoint_metadata(checkpoint_path: Path | None) -> dict[str, Any] | 
     if isinstance(state, dict):
         return state
     return None
+
+
+def _is_gated_dinov3_local_checkpoint(
+    model_name: str,
+    checkpoint: dict[str, Any] | None,
+) -> bool:
+    if "dinov3" not in model_name.lower() or checkpoint is None:
+        return False
+    state = checkpoint.get("model_state_dict")
+    return isinstance(state, dict) and "embeddings.patch_embeddings.weight" in state
+
+
+def _local_dinov3_vit_base() -> tuple[Any, Any]:
+    from transformers.models.dinov3_vit.configuration_dinov3_vit import DINOv3ViTConfig
+    from transformers.models.dinov3_vit.image_processing_dinov3_vit import DINOv3ViTImageProcessor
+    from transformers.models.dinov3_vit.modeling_dinov3_vit import DINOv3ViTModel
+
+    config = DINOv3ViTConfig(
+        image_size=224,
+        patch_size=16,
+        num_channels=3,
+        hidden_size=768,
+        num_hidden_layers=12,
+        num_attention_heads=12,
+        intermediate_size=3072,
+        num_register_tokens=4,
+    )
+    processor = DINOv3ViTImageProcessor(size={"height": 224, "width": 224})
+    model = DINOv3ViTModel(config)
+    return processor, model

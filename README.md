@@ -84,7 +84,32 @@ Video requires `ffmpeg` (`brew install ffmpeg`). Each run writes `results.parque
 uv run tarmac report runs/my-video      # -> runs/my-video/report.html
 ```
 
-Headline stats, a quality timeline, a UMAP scatter of the run inside the reference space, a GPS map (when EXIF GPS exists), and a thumbnail gallery.
+Headline stats, a quality timeline, cracked-section overlays when a crack head is present, a UMAP scatter of the run inside the reference space, a GPS map (when EXIF GPS exists), and a thumbnail gallery.
+
+### Crack & runway detection
+
+Crack detection is a separate binary track from the 1-5 quality grader. Crack datasets do not carry quality labels, so the crack head is trained independently on frozen active-backbone embeddings and is applied per tile during `tarmac analyze`.
+
+```bash
+uv run tarmac download cracks-concrete-pavement
+uv run tarmac download crack500          # optional mask dataset mirror
+uv run tarmac download deepcrack         # optional mask dataset mirror
+uv run tarmac prepare-cracks
+uv run tarmac train-crack                # requires Apple MPS; no CPU fallback
+uv run tarmac evaluate-crack
+```
+
+When `models/crack_head.pt` exists, `tarmac analyze` adds `tile_crack_prob` and `tile_crack` to `tiles.parquet`, plus per-frame `crack_ratio` and `frame_has_crack` in `results.parquet`. `tarmac report` then includes a **Cracked sections** panel with a crack-ratio timeline and 3x2 red tile overlays showing which road/runway sections are cracked.
+
+Runway-specific Roboflow data is supported but requires a free API key:
+
+```bash
+export ROBOFLOW_API_KEY=...
+uv run tarmac download runway-roboflow
+uv run tarmac prepare-cracks
+```
+
+Get the key from Roboflow account settings. The downloader uses the Roboflow REST API for `revathi-deusp/runway-crack-detection-1iq1l` and converts bounding boxes into tile-level crack labels.
 
 ### Visualize a folder of images in the vector space
 
@@ -109,7 +134,9 @@ Upload a photo/video or point at a local path, run the pipeline, and browse the 
 | [StreetSurfaceVis](https://zenodo.org/records/11449977) | 9,122 | surface type × quality (excellent→very bad) | Primary — trained & evaluated here |
 | [RSCD](https://thu-rsxd.com/rscd/) | 1M | material × unevenness × friction | Scale-up (downloader included) |
 | [RTK](https://data.mendeley.com/datasets/fxy5khmhpb/1) | 77,547 | asphalt/paved/unpaved + defects | Scale-up (downloader included) |
-| [CQU-BPDD](https://github.com/DearCaat/CQU-BPDD), [CRACK500](https://github.com/fyangneil/pavement-crack-detection) | 60k / 500 | crack & distress types, pixel masks | Planned: crack detection (Phase 7) |
+| [Concrete & Pavement Crack](https://data.mendeley.com/datasets/429vzbgmbx/1) | 30,000 | crack / non-crack | Crack classifier head |
+| [CRACK500](https://github.com/fyangneil/pavement-crack-detection), [DeepCrack](https://github.com/yhlleo/DeepCrack) | masks | pixel crack masks | Crack mask data, downloadable |
+| Roboflow runway crack detection | varies | runway crack bounding boxes | Optional runway-specific labels with `ROBOFLOW_API_KEY` |
 
 ## Project layout
 
@@ -129,4 +156,4 @@ PLAN.md       full architecture, decisions and phase plan
 
 ## Roadmap
 
-Built so far: data pipeline, embeddings, contrastive fine-tuning, clustering, evaluation, inference, reports, folder visualization and UI. Next (see `PLAN.md`, Phase 7): explicit **crack and defect detection** — a multi-label defect head, defect-aware embeddings, and crack heatmaps on DINOv3 dense patch tokens.
+Built so far: data pipeline, embeddings, contrastive fine-tuning, clustering, evaluation, inference, reports, folder visualization, UI, and the Phase 7b binary **crack/runway detection** track. Next (see `PLAN.md`, Phase 7): broader multi-label defect types, defect-aware embeddings, and crack heatmaps on DINOv3 dense patch tokens.

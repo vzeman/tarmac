@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+SEED = 42
+
+
+@dataclass(frozen=True)
+class CrackManifestResult:
+    path: Path
+    row_count: int
+    stats: pd.DataFrame
+
+
+def build_crack_manifest(
+    raw_dir: Path = Path("data/raw"),
+    output_path: Path = Path("data/processed/crack_manifest.parquet"),
+) -> CrackManifestResult:
+    rows: list[dict[str, object]] = []
+    rows.extend(_concrete_pavement_rows(raw_dir / "cracks_concrete_pavement"))
+    rows.extend(_folder_binary_rows(raw_dir / "crack500", "crack500"))
+    rows.extend(_folder_binary_rows(raw_dir / "deepcrack", "deepcrack"))
+    rows.extend(_runway_rows(raw_dir / "runway_roboflow"))
+    if not rows:
+        raise RuntimeError(
+            f"No crack datasets found under {raw_dir}. Run `uv run tarmac download cracks-concrete-pavement` first."
+        )
+
+    frame = pd.DataFrame(rows).drop_duplicates(subset=["image_path", "source_dataset"]).reset_index(drop=True)
+    frame["has_crack"] = frame["has_crack"].astype("int8")
+    frame["split"] = _stratified_splits(frame["has_crack"].to_numpy(), seed=SEED)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(output_path, index=False)
+    stats = (
+        frame.groupby(["source_dataset", "split", "has_crack"], observed=True)
+        .size()
+        .reset_index(name="count")
+        .sort_values(["source_dataset", "split", "has_crack"])
+    )
+    return CrackManifestResult(path=output_path, row_count=len(frame), stats=stats)
+
+
+def _concrete_pavement_rows(dataset_dir: Path) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for folder, label in (("positive", 1), ("negative", 0)):
+        path = dataset_dir / folder
+        if not path.exists():
+            continue
+        for image_path in sorted(p for p in path.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS):
+            rows.append(
+                {
+                    "image_path": str(image_path.resolve()),
+                    "source_dataset": "cracks_concrete_pavement",
+                    "has_crack": label,
+                }
+            )
+    return rows
+
+
+def _folder_binary_rows(dataset_dir: Path, source_dataset: str) -> list[dict[str, object]]:
+    if not dataset_dir.exists():
+        return []
+    rows: list[dict[str, object]] = []
+    for image_path in sorted(p for p in dataset_dir.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS):
+        parts = [part.lower() for part in image_path.parts]
+        if any("mask" in part or "label" in part for part in parts):
+            continue
+        label = 1 if any("crack" in part for part in parts) else None
+        if label is None:
+            continue
+        rows.append(
+            {
+                "image_path": str(image_path.resolve()),
+                "source_dataset": source_dataset,
+                "has_crack": label,
+            }
+        )
+    return rows
+
+
+def _runway_rows(dataset_dir: Path) -> list[dict[str, object]]:
+    labels_path = dataset_dir / "tile_labels.jsonl"
+    if not labels_path.exists():
+        return []
+    rows: list[dict[str, object]] = []
+    for line in labels_path.read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        rows.append(
+            {
+                "image_path": str(Path(row["image_path"]).resolve()),
+                "source_dataset": "runway_roboflow",
+                "has_crack": int(row["has_crack"]),
+            }
+        )
+    return rows
+
+
+def _stratified_splits(labels: np.ndarray, seed: int) -> list[str]:
+    rng = np.random.default_rng(seed)
+    splits = np.empty(len(labels), dtype=object)
+    for label in sorted(set(int(x) for x in labels)):
+        indexes = np.flatnonzero(labels == label)
+        rng.shuffle(indexes)
+        train_end = int(round(0.70 * len(indexes)))
+        val_end = train_end + int(round(0.15 * len(indexes)))
+        splits[indexes[:train_end]] = "train"
+        splits[indexes[train_end:val_end]] = "val"
+        splits[indexes[val_end:]] = "test"
+    return [str(x) for x in splits]

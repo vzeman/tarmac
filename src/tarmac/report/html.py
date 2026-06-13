@@ -44,6 +44,7 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     run_xy = reducer.transform(run_embeddings)
 
     timeline = quality_timeline(df)
+    crack_panel = cracked_sections_panel(run_dir, df)
     scatter = umap_scatter(ref_xy, ref_df, run_xy, df)
     gps = gps_scatter(df) if {"latitude", "longitude"}.issubset(df.columns) else ""
     gallery = gallery_html(run_dir, df)
@@ -69,6 +70,13 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     .thumb img {{ width: 100%; max-height: 200px; object-fit: cover; display: block; }}
     .thumb div {{ padding: 9px; font-size: 13px; }}
     .badge {{ display: inline-block; color: #111; border-radius: 999px; padding: 2px 8px; font-weight: 700; }}
+    .crack-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }}
+    .crack-card {{ background: white; border: 1px solid #dde2e7; border-radius: 8px; overflow: hidden; }}
+    .crack-image {{ position: relative; line-height: 0; }}
+    .crack-image img {{ width: 100%; display: block; }}
+    .crack-tile {{ position: absolute; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.75); }}
+    .crack-tile.hot {{ background: rgba(210, 36, 36, 0.45); border-color: rgba(210, 36, 36, 0.9); }}
+    .crack-meta {{ padding: 9px; font-size: 13px; line-height: 1.35; }}
   </style>
 </head>
 <body>
@@ -80,6 +88,7 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     {stats}
     <h2>Quality Timeline</h2>
     <div class="panel">{timeline}</div>
+    {crack_panel}
     <h2>Embedding Map</h2>
     <div class="panel">{scatter}</div>
     {gps}
@@ -137,6 +146,76 @@ def quality_timeline(df: pd.DataFrame) -> str:
     fig.update_xaxes(title="Frame / timestamp")
     fig.update_layout(margin={"l": 48, "r": 20, "t": 20, "b": 45}, height=380)
     return pio.to_html(fig, include_plotlyjs=True, full_html=False)
+
+
+def cracked_sections_panel(run_dir: Path, df: pd.DataFrame) -> str:
+    if "crack_ratio" not in df.columns:
+        return """
+    <h2 id="cracked-sections">Cracked sections</h2>
+    <div class="panel">Crack detection head not found for this run.</div>
+"""
+    return f"""
+    <h2 id="cracked-sections">Cracked sections</h2>
+    <div class="panel">{crack_timeline(df)}</div>
+    <div class="crack-grid">{crack_overlay_gallery(run_dir, df)}</div>
+"""
+
+
+def crack_timeline(df: pd.DataFrame) -> str:
+    ratios = df["crack_ratio"].fillna(0.0).astype(float)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=df["timestamp"].fillna(df["frame_index"]) if "timestamp" in df else df["frame_index"],
+            y=ratios,
+            mode="lines+markers",
+            marker={"size": 10, "color": "#d22424"},
+            text=df["filename"],
+            hovertemplate="%{text}<br>crack_ratio=%{y:.2f}<extra></extra>",
+        )
+    )
+    fig.update_yaxes(title="Crack ratio", range=[-0.03, 1.03])
+    fig.update_xaxes(title="Frame / timestamp")
+    fig.update_layout(margin={"l": 48, "r": 20, "t": 20, "b": 45}, height=320)
+    return pio.to_html(fig, include_plotlyjs=False, full_html=False)
+
+
+def crack_overlay_gallery(run_dir: Path, df: pd.DataFrame) -> str:
+    cells: list[str] = []
+    for row in df.itertuples():
+        thumb = run_dir / row.thumbnail_path
+        if not thumb.exists():
+            continue
+        tiles = json.loads(row.tile_details) if isinstance(row.tile_details, str) else []
+        overlays = "\n".join(_tile_overlay(tile) for tile in tiles)
+        src = image_to_base64(thumb)
+        ratio = float(getattr(row, "crack_ratio", 0.0) or 0.0)
+        cells.append(
+            f"""<article class="crack-card">
+  <div class="crack-image"><img src="data:image/jpeg;base64,{src}" alt="{row.filename}">{overlays}</div>
+  <div class="crack-meta"><b>{ratio:.2f}</b> crack ratio<br>{row.filename}</div>
+</article>"""
+        )
+    return "\n".join(cells)
+
+
+def _tile_overlay(tile: dict[str, Any]) -> str:
+    tile_name = str(tile.get("tile", "tile_0"))
+    try:
+        index = int(tile_name.split("_")[-1])
+    except ValueError:
+        index = 0
+    row = index // 3
+    col = index % 3
+    left = col * (100.0 / 3.0)
+    top = 50.0 + row * 25.0
+    hot = bool(tile.get("tile_crack", False))
+    prob = float(tile.get("tile_crack_prob", 0.0) or 0.0)
+    cls = "crack-tile hot" if hot else "crack-tile"
+    return (
+        f'<div class="{cls}" title="{tile_name}: crack probability {prob:.3f}" '
+        f'style="left:{left:.4f}%;top:{top:.4f}%;width:33.3333%;height:25%;"></div>'
+    )
 
 
 def umap_scatter(
