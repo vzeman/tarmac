@@ -14,3 +14,7 @@ __pycache__/
 /.uv-cache/
 /.idea/
 .DS_Store
+
+# Heavy interactive HTML reports (regenerable via `tarmac visualize` / `tarmac evaluate`);
+# keep the lightweight PNG versions committed for the README instead.
+reports/*.html
