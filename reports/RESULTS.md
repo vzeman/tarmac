@@ -4,7 +4,7 @@ This gallery shows the current Tarmac pipeline on small, license-safe examples: 
 
 ## 1. Surface Type + Quality Grading (DINOv3)
 
-![Surface type and quality grading](reports/examples/01_quality_grading.png)
+![Surface type and quality grading](examples/01_quality_grading.png)
 
 `tarmac analyze --device cpu` embeds each image/tile with the active fine-tuned DINOv3 backbone, then classifies by cosine k-NN against the reference set. The montage spans StreetSurfaceVis validation/test examples across quality grades 1-5 and multiple surface types; labels show `pred type / predQ (trueQ)`.
 
@@ -12,7 +12,7 @@ Metric: held-out StreetSurfaceVis surface-type accuracy **0.954**, quality off-b
 
 ## 2. Quality Embedding Space
 
-![Quality embedding space](reports/examples/02_embedding_space.png)
+![Quality embedding space](examples/02_embedding_space.png)
 
 The fine-tuned embedding space separates quality grades much more cleanly than the frozen backbone: excellent and very-bad surfaces move into more coherent neighborhoods instead of being smeared across the projection. This separation is what makes the cosine nearest-neighbor quality vote reliable on new folders.
 
@@ -20,7 +20,7 @@ Metric: fine-tuning raises quality macro-F1 from roughly **0.47-0.49** frozen to
 
 ## 3. Crack Detection (Tile-Level)
 
-![Tile-level crack detection](reports/examples/03_crack_tiles.png)
+![Tile-level crack detection](examples/03_crack_tiles.png)
 
 The crack head runs on the same DINOv3 tile embeddings and flags cracked sections independently from the 1-5 quality grader. This example forces a 3x2 lower-half tile layout and marks cracked tiles in red, matching the report's "cracked sections" view.
 
@@ -28,7 +28,7 @@ Metric: current crack-head test metrics are tracked in `reports/CRACK_DETECTION.
 
 ## 4. Pixel-Precise Crack Segmentation + Measurement
 
-![Pixel-precise crack segmentation and measurement](reports/examples/04_crack_segmentation.png)
+![Pixel-precise crack segmentation and measurement](examples/04_crack_segmentation.png)
 
 `tarmac crack-measure --device cpu` produces full-resolution crack overlays and geometry measurements. The panel compares each original CrackAirport image with its available ground-truth mask and Tarmac's predicted overlay annotated with area percent and skeleton length.
 
@@ -36,7 +36,7 @@ Metric: mean predicted `crack_area_pct` across the shown original images is **0.
 
 ## 5. Runway / Airport Full-Frame Crack Detection
 
-![Runway full-frame crack detection](reports/examples/05_runway_fullframe.png)
+![Runway full-frame crack detection](examples/05_runway_fullframe.png)
 
 Top-down airport pavement should not be cropped to the road-like lower half. `tarmac analyze --region full --device cpu` uses the full image, here shown with a 3x3 whole-frame tile grid plus crack segmentation overlay.
 
@@ -44,9 +44,9 @@ Metric: the full-frame run analyzed **3** CrackAirport images with mean tile cra
 
 ## 6. Folder Vector-Space Visualization
 
-![Folder vector-space scatter](reports/examples/06_folder_scatter.png)
+![Folder vector-space scatter](examples/06_folder_scatter.png)
 
-`tarmac visualize` projects a folder into the persisted reference UMAP space and writes a click-to-view HTML scatter where each new dot opens the source image and prediction details. The static image above shows the same idea for the selected StreetSurfaceVis gallery folder; an existing interactive example is available at `reports/visualize_tarmac_viz_test.html`.
+`tarmac visualize` projects a folder into the persisted reference UMAP space and writes a click-to-view HTML scatter where each new dot opens the source image and prediction details. The static image above shows the same idea for the selected StreetSurfaceVis gallery folder; the interactive HTML version is regenerable locally with `tarmac visualize <folder>` (these heavy HTML reports are not committed to keep the repo lean).
 
 Metric: folder points are embedded with the active DINOv3 model and transformed into the persisted reference space, so their position can be compared directly with the StreetSurfaceVis reference cloud.
 

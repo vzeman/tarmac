@@ -57,6 +57,34 @@ Cosine k-NN (k=10) classification on the held-out validation + test split of [St
 
 Fine-tuning is the decisive step: surface-type accuracy rises from ~0.80 to **0.954** and quality macro-F1 from ~0.47 to **0.66**, with quality errors almost always just one adjacent grade (off-by-one ≈ **99.9%**). The active model — fine-tuned DINOv3 — is recorded in `models/active_model.json`. Full breakdown in [`reports/PHASE3_FINETUNE.md`](reports/PHASE3_FINETUNE.md).
 
+## Capabilities & results
+
+Worked examples on license-safe imagery (StreetSurfaceVis + CrackAirport). Full gallery with metrics and attribution: [`reports/RESULTS.md`](reports/RESULTS.md).
+
+### Surface type + quality grading
+Each tile is classified by cosine k-NN against the fine-tuned DINOv3 reference set. Labels show `pred type / predQ (trueQ)` — surface type **0.954** accuracy, quality off-by-one **0.999**.
+
+![Surface type and quality grading](reports/examples/01_quality_grading.png)
+
+### Pixel-precise crack segmentation + measurement
+`tarmac crack-measure` traces the exact crack pixels and computes crack **area** and **length**. Left to right: original · ground-truth mask (CrackAirport) · our predicted overlay with area %/length.
+
+![Pixel-precise crack segmentation and measurement](reports/examples/04_crack_segmentation.png)
+
+### Runway / airport full-frame crack detection
+Top-down airport pavement has no sky, so `--region full` analyses the whole image (not just the lower half) and overlays detected cracks.
+
+![Runway full-frame crack detection](reports/examples/05_runway_fullframe.png)
+
+### Cracked-section flagging & vector-space visualization
+Tile-level crack flags (left) mark which sections are cracked; `tarmac visualize` (right) projects any folder into the reference embedding space with click-to-view images.
+
+| Cracked sections | Folder in embedding space |
+| --- | --- |
+| ![Tile-level crack detection](reports/examples/03_crack_tiles.png) | ![Folder vector-space scatter](reports/examples/06_folder_scatter.png) |
+
+Mobile/real-time YOLO results: [`reports/YOLO_MOBILE.md`](reports/YOLO_MOBILE.md).
+
 ## Quickstart
 
 ```bash
