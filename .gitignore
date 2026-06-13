@@ -1,8 +1,10 @@
 data/
 models/
+runs/
 .venv
 .uv-cache/
 __pycache__/
 *.egg-info/
 /.uv-cache/
 /.idea/
+.DS_Store
