@@ -50,7 +50,36 @@ Metric: the full-frame run analyzed **3** CrackAirport images with mean tile cra
 
 Metric: folder points are embedded with the active DINOv3 model and transformed into the persisted reference space, so their position can be compared directly with the StreetSurfaceVis reference cloud.
 
-## 7. Mobile (YOLO) — see `reports/YOLO_MOBILE.md`
+## 7. Structural Defect Detection (Multi-Domain)
+
+![Structural defect detection crack examples](examples/07_structural_defects.png)
+
+The structural defect head is a five-label classifier for `crack`, `spalling`, `efflorescence`, `exposed_rebar`, and `corrosion`. The committed visual uses CrackAirport CC BY 4.0 imagery only: CODEBRIM bridge imagery is not redistributed because Zenodo record `2620293` reports license id `other-nc`, which is not clearly permissive for committed examples. Non-crack bridge-defect evidence is therefore shown as metrics rather than images.
+
+Headline test AP / F1:
+
+| Label | AP | F1 |
+| --- | ---: | ---: |
+| crack | 0.987 | 0.939 |
+| spalling | 0.966 | 0.895 |
+| efflorescence | 0.968 | 0.933 |
+| exposed_rebar | 0.986 | 0.959 |
+| corrosion | 0.898 | 0.851 |
+
+Test per-domain F1:
+
+| Domain | Macro F1 | Micro F1 | Label coverage |
+| --- | ---: | ---: | --- |
+| overall | 0.916 | 0.930 | 5 labels |
+| bridge | 0.898 | 0.890 | 5 labels |
+| building | 0.877 | 0.863 | crack only |
+| concrete_generic | 0.999 | 0.999 | crack only |
+| pavement | 0.900 | 0.854 | crack only |
+| runway | 0.899 | 0.959 | crack only |
+
+Caveat: bridge is the only domain with all five labels, including the non-crack structural defects; the other domains are crack-only in this evaluation slice. Corrosion is the weakest label by AP and F1, so field use should treat it as the first target for more data and calibration.
+
+## 8. Mobile (YOLO) — see `reports/YOLO_MOBILE.md`
 
 The mobile track trains compact YOLO students for crack segmentation and type/quality classification while keeping DINOv3 as the high-accuracy teacher/server model. Current benchmark headlines are approximately **47 FPS CPU / 295 FPS MPS** for segmentation and **~240 FPS CPU** for classification; a full-training refresh is in progress.
 
@@ -58,4 +87,4 @@ No YOLO training or YOLO inference was run for this gallery to avoid interfering
 
 ## Attribution and Licensing
 
-Committed example PNGs use license-safe source imagery only. CrackAirport: Mendeley dataset `3v5r2fxf89`, **CC BY 4.0**. StreetSurfaceVis: Zenodo record `11449977`.
+Committed example PNGs use license-safe source imagery only. CrackAirport: Mendeley dataset `3v5r2fxf89`, **CC BY 4.0**. StreetSurfaceVis: Zenodo record `11449977`. CODEBRIM imagery is not committed; Zenodo record `2620293` currently reports license id `other-nc`.

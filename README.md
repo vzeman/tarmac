@@ -76,6 +76,11 @@ Top-down airport pavement has no sky, so `--region full` analyses the whole imag
 
 ![Runway full-frame crack detection](reports/examples/05_runway_fullframe.png)
 
+### Structural defect detection (multi-domain)
+The multi-label defect head predicts `crack`, `spalling`, `efflorescence`, `exposed_rebar`, and `corrosion` on the same DINOv3 tile embeddings. Headline test AP is **0.987 / 0.966 / 0.968 / 0.986 / 0.898** in that label order; bridge is the only domain with all five labels, and corrosion is the weakest class.
+
+![Structural defect detection crack examples](reports/examples/07_structural_defects.png)
+
 ### Cracked-section flagging & vector-space visualization
 Tile-level crack flags (left) mark which sections are cracked; `tarmac visualize` (right) projects any folder into the reference embedding space with click-to-view images.
 
@@ -167,6 +172,8 @@ uv run tarmac evaluate-defect
 Held-out test AP / F1: crack `0.9868 / 0.9393`, spalling `0.9660 / 0.8953`, efflorescence `0.9675 / 0.9325`, exposed rebar `0.9863 / 0.9593`, corrosion `0.8982 / 0.8513`. Test domain macro-F1: bridge `0.8975`, pavement `0.8996`, building `0.8768`, runway `0.8990`, concrete-generic `0.9986`. Full tables are in [`reports/DEFECT_DETECTION.md`](reports/DEFECT_DETECTION.md).
 
 When `models/defect_head.pt` exists, `tarmac analyze` adds per-tile `tile_defect_<label>_prob` and `tile_defect_<label>` columns to `tiles.parquet`, plus per-frame `defect_<label>_ratio`, `frame_has_defect_<label>`, `structural_defects`, and `frame_has_structural_defect` columns to `results.parquet`. The HTML report includes a **Structural defects** panel listing detected defect types per frame.
+
+The committed gallery image uses CrackAirport imagery for the crack case only. CODEBRIM bridge imagery is not committed because Zenodo record `2620293` reports license id `other-nc`; the non-crack bridge-defect results are shown in the metrics table in [`reports/RESULTS.md`](reports/RESULTS.md).
 
 ### Mobile / real-time (YOLO)
 
