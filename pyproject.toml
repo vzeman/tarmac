@@ -24,6 +24,8 @@ dependencies = [
   "requests",
   "tqdm",
   "matplotlib>=3.11.0",
+  "scikit-image>=0.26.0",
+  "scipy>=1.17.1",
 ]
 
 [project.scripts]

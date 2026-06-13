@@ -395,6 +395,17 @@ def analyze(
     ),
     batch_size: int = typer.Option(16, "--batch-size", help="Embedding batch size."),
     device: str = typer.Option("cpu", "--device", help="Inference device: cpu, mps, or auto."),
+    region: str = typer.Option("auto", "--region", help="Tile region: auto, lower_half, or full."),
+    crack_segmentation: bool = typer.Option(
+        False,
+        "--crack-segmentation",
+        help="Render pixel-precise crack masks and add crack geometry columns.",
+    ),
+    mm_per_pixel: float | None = typer.Option(
+        None,
+        "--mm-per-pixel",
+        help="Optional calibration for metric crack measurements.",
+    ),
 ) -> None:
     """Analyze a photo, image directory, or video."""
     from tarmac.inference.analyze import analyze_path, print_summary
@@ -407,8 +418,90 @@ def analyze(
         non_road_threshold=non_road_threshold,
         batch_size=batch_size,
         device=device,
+        region=region,
+        crack_segmentation=crack_segmentation,
+        mm_per_pixel=mm_per_pixel,
     )
     print_summary(summary, console)
+
+
+@app.command("crack-measure")
+def crack_measure(
+    path: Path = typer.Argument(..., help="Image file or directory of images to measure."),
+    mm_per_pixel: float | None = typer.Option(
+        None,
+        "--mm-per-pixel",
+        help="Optional calibration for metric crack measurements.",
+    ),
+    out: Path = typer.Option(Path("runs/crack_measure"), "--out", "-o", help="Output directory."),
+    batch_size: int = typer.Option(32, "--batch-size", help="Sliding-window embedding batch size."),
+    device: str = typer.Option("cpu", "--device", help="Embedding device when a crack head is available."),
+) -> None:
+    """Measure crack area, length, and width on full images."""
+    import pandas as pd
+    from PIL import Image
+
+    from tarmac.crack.segment import segment_cracks
+    from tarmac.embedding.embedder import HFBackboneEmbedder
+    from tarmac.inference.analyze import IMAGE_EXTENSIONS, load_active_artifacts, load_crack_detector
+
+    path = path.expanduser().resolve()
+    out = out.expanduser().resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    if path.is_dir():
+        image_paths = sorted(
+            p for p in path.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+        )
+    elif path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS:
+        image_paths = [path]
+    else:
+        raise typer.BadParameter(f"Expected an image file or image directory: {path}")
+    if not image_paths:
+        raise typer.BadParameter(f"No images found in {path}")
+
+    crack_detector = load_crack_detector()
+    embedder = None
+    if crack_detector is not None:
+        active = load_active_artifacts()
+        embedder = HFBackboneEmbedder(
+            model_name=active.model_name,
+            checkpoint_path=active.checkpoint_path,
+            allow_fallback=False,
+            device_name=device,
+            attn_implementation="eager",
+        )
+
+    rows: list[dict[str, object]] = []
+    for index, image_path in enumerate(image_paths):
+        with Image.open(image_path) as image:
+            overlay = out / f"{image_path.stem}_crackseg.png"
+            result = segment_cracks(
+                image,
+                crack_head=crack_detector,
+                embedder=embedder,
+                mm_per_pixel=mm_per_pixel,
+                output_path=overlay,
+                batch_size=batch_size,
+            )
+        row = {
+            "image_path": str(image_path),
+            "filename": image_path.name,
+            "overlay_path": str(overlay),
+            **result.measurements,
+        }
+        rows.append(row)
+        console.print(
+            f"{index + 1:02d}. {image_path.name}: "
+            f"area={float(result.measurements['crack_area_pct']):.4f}% "
+            f"length={int(result.measurements['total_length_px'])} px"
+        )
+
+    frame = pd.DataFrame(rows)
+    csv_path = out / "crack_measurements.csv"
+    parquet_path = out / "crack_measurements.parquet"
+    frame.to_csv(csv_path, index=False)
+    frame.to_parquet(parquet_path, index=False)
+    console.print(f"Crack measurements written to {csv_path} and {parquet_path}")
 
 
 @app.command()

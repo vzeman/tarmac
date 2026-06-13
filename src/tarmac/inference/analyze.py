@@ -20,8 +20,9 @@ from rich.table import Table
 from tqdm.auto import tqdm
 
 from tarmac.embedding.embedder import DINOV3_MODEL, HFBackboneEmbedder
-from tarmac.embedding.tiling import make_embedding_inputs
 from tarmac.crack.model import CrackHead
+from tarmac.crack.segment import segment_cracks
+from tarmac.embedding.tiling import make_embedding_inputs, tile_boxes
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -48,6 +49,9 @@ def analyze_path(
     non_road_threshold: float | None = None,
     batch_size: int = 16,
     device: str = "cpu",
+    region: str = "auto",
+    crack_segmentation: bool = False,
+    mm_per_pixel: float | None = None,
 ) -> dict[str, Any]:
     torch.set_num_threads(1)
     input_path = input_path.expanduser().resolve()
@@ -107,6 +111,20 @@ def analyze_path(
         if non_road_threshold is None:
             non_road_threshold = calibrate_non_road_threshold(artifacts.embeddings_path, index, k=k)
         crack_detector = load_crack_detector()
+        chosen_region = resolve_region_mode(
+            requested_region=region,
+            frame_paths=frame_paths,
+            embedder=embedder,
+            reference_df=ref_df,
+            index=index,
+            centroids=centroids,
+            k=k,
+            non_road_threshold=non_road_threshold,
+        )
+        Console().print(f"Region mode: {chosen_region} (requested: {region})")
+        run_crack_segmentation = bool(
+            crack_segmentation or (chosen_region == "full" and crack_detector is not None)
+        )
         rows, tile_rows = analyze_frames(
             frame_paths=frame_paths,
             input_type=input_type,
@@ -120,6 +138,9 @@ def analyze_path(
             non_road_threshold=non_road_threshold,
             batch_size=batch_size,
             crack_detector=crack_detector,
+            region=chosen_region,
+            crack_segmentation=run_crack_segmentation,
+            mm_per_pixel=mm_per_pixel,
         )
     finally:
         if temp_dir_ctx is not None:
@@ -142,6 +163,9 @@ def analyze_path(
         k=k,
         non_road_threshold=non_road_threshold,
         device=device,
+        requested_region=region,
+        region=chosen_region,
+        crack_segmentation=run_crack_segmentation,
     )
     summary_path = out_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2) + "\n")
@@ -235,6 +259,9 @@ def analyze_frames(
     non_road_threshold: float,
     batch_size: int,
     crack_detector: dict[str, Any] | None = None,
+    region: str = "lower_half",
+    crack_segmentation: bool = False,
+    mm_per_pixel: float | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     frame_records: list[dict[str, Any]] = []
     tile_records: list[dict[str, Any]] = []
@@ -243,7 +270,8 @@ def analyze_frames(
     for frame_index, path in enumerate(frame_paths):
         with Image.open(path) as image:
             exif = extract_exif(image)
-            inputs = make_embedding_inputs(image, embedder.input_size)
+            inputs = make_embedding_inputs(image, embedder.input_size, region=region)
+            source_size = image.size
             thumb_name = f"frame_{frame_index:06d}.jpg"
             thumb_path = thumbs_dir / thumb_name
             save_thumbnail(image, thumb_path)
@@ -254,6 +282,9 @@ def analyze_frames(
                     "source_path": str(path),
                     "filename": path.name,
                     "kind": item.kind,
+                    "box": item.box,
+                    "source_width": source_size[0],
+                    "source_height": source_size[1],
                     "image": item.image,
                     "thumbnail_path": str(thumb_path.relative_to(out_dir)),
                     "timestamp": exif.get("timestamp"),
@@ -305,6 +336,10 @@ def analyze_frames(
             "tile": item["kind"],
             "tile_crack_prob": crack_prob,
             "tile_crack": crack_flag,
+            "tile_box": list(item["box"]) if item["box"] is not None else None,
+            "image_width": int(item["source_width"]),
+            "image_height": int(item["source_height"]),
+            "region": region,
             **pred,
         }
         frame["tiles"].append(tile_record)
@@ -327,27 +362,60 @@ def analyze_frames(
             confidence = 0.0
             road_tile_count = 0
             crack_ratio = 0.0
-        frame_records.append(
-            {
-                "frame_index": frame["frame_index"],
-                "input_type": frame["input_type"],
-                "source_path": frame["source_path"],
-                "filename": frame["filename"],
-                "thumbnail_path": frame["thumbnail_path"],
-                "timestamp": frame["timestamp"],
-                "latitude": frame["latitude"],
-                "longitude": frame["longitude"],
-                "predicted_quality": predicted_quality,
-                "surface_type": surface_type,
-                "confidence": confidence,
-                "road_tile_count": road_tile_count,
-                "tile_count": len(frame["tiles"]),
-                "crack_ratio": crack_ratio,
-                "frame_has_crack": bool(crack_ratio > 0.0),
-                "tile_details": json.dumps(frame["tiles"]),
-                "embedding": frame["embedding"].astype("float32"),
-            }
-        )
+        record = {
+            "frame_index": frame["frame_index"],
+            "input_type": frame["input_type"],
+            "source_path": frame["source_path"],
+            "filename": frame["filename"],
+            "thumbnail_path": frame["thumbnail_path"],
+            "timestamp": frame["timestamp"],
+            "latitude": frame["latitude"],
+            "longitude": frame["longitude"],
+            "predicted_quality": predicted_quality,
+            "surface_type": surface_type,
+            "confidence": confidence,
+            "road_tile_count": road_tile_count,
+            "tile_count": len(frame["tiles"]),
+            "crack_ratio": crack_ratio,
+            "frame_has_crack": bool(crack_ratio > 0.0),
+            "tile_details": json.dumps(frame["tiles"]),
+            "embedding": frame["embedding"].astype("float32"),
+            "region": region,
+        }
+        if crack_segmentation:
+            with Image.open(frame["source_path"]) as original:
+                seg_dir = out_dir / "crackseg"
+                overlay_name = f"frame_{frame_index:06d}_{Path(frame['filename']).stem}_crackseg.png"
+                seg = segment_cracks(
+                    original,
+                    crack_head=crack_detector,
+                    embedder=embedder,
+                    mm_per_pixel=mm_per_pixel,
+                    output_path=seg_dir / overlay_name,
+                    batch_size=batch_size,
+                )
+            measurements = seg.measurements
+            record.update(
+                {
+                    "crackseg_overlay_path": str(Path("crackseg") / overlay_name),
+                    "crack_area_px": int(measurements["crack_area_px"]),
+                    "crack_area_pct": float(measurements["crack_area_pct"]),
+                    "crack_length_px": int(measurements["total_length_px"]),
+                    "crack_mean_width_px": float(measurements["mean_width_px"]),
+                    "crack_max_width_px": float(measurements["max_width_px"]),
+                    "crack_components": int(measurements["n_components"]),
+                }
+            )
+            if "crack_area_mm2" in measurements:
+                record.update(
+                    {
+                        "crack_area_mm2": float(measurements["crack_area_mm2"]),
+                        "crack_length_mm": float(measurements["total_length_mm"]),
+                        "crack_mean_width_mm": float(measurements["mean_width_mm"]),
+                        "crack_max_width_mm": float(measurements["max_width_mm"]),
+                    }
+                )
+        frame_records.append(record)
     return frame_records, tile_records
 
 
@@ -369,6 +437,47 @@ def load_crack_detector(
         except (json.JSONDecodeError, TypeError, ValueError):
             threshold = 0.5
     return {"head": head, "threshold": threshold, "checkpoint": str(checkpoint_path)}
+
+
+def resolve_region_mode(
+    requested_region: str,
+    frame_paths: list[Path],
+    embedder: HFBackboneEmbedder,
+    reference_df: pd.DataFrame,
+    index: Any,
+    centroids: np.ndarray,
+    k: int,
+    non_road_threshold: float,
+    *,
+    max_frames: int = 3,
+) -> str:
+    if requested_region in {"lower_half", "full"}:
+        return requested_region
+    if requested_region != "auto":
+        raise ValueError("region must be one of: auto, lower_half, full")
+    top_non_road: list[float] = []
+    for path in frame_paths[:max_frames]:
+        with Image.open(path) as image:
+            rgb = image.convert("RGB")
+            boxes = tile_boxes(*rgb.size, tile_cols=3, tile_rows=3, region="full")
+            crops = [rgb.crop(box).resize((embedder.input_size, embedder.input_size)) for box in boxes]
+        pixels = embedder.processor(images=crops, return_tensors="pt")["pixel_values"]
+        embeddings = embedder.embed_pixel_values(pixels).numpy().astype("float32")
+        top_preds = [
+            predict_tile(
+                embedding=embeddings[i],
+                reference_df=reference_df,
+                index=index,
+                centroids=centroids,
+                k=k,
+                threshold=non_road_threshold,
+            )
+            for i in range(3)
+        ]
+        top_non_road.append(float(np.mean([bool(pred["non_road"]) for pred in top_preds])))
+    if top_non_road and float(np.mean(top_non_road)) >= 0.67:
+        return "lower_half"
+    return "full"
 
 
 @torch.inference_mode()
@@ -425,6 +534,9 @@ def build_summary(
     k: int,
     non_road_threshold: float,
     device: str,
+    requested_region: str,
+    region: str,
+    crack_segmentation: bool,
 ) -> dict[str, Any]:
     valid_quality = frames_df["predicted_quality"].dropna().astype(int)
     quality_distribution = {
@@ -456,6 +568,9 @@ def build_summary(
         "k": int(k),
         "non_road_threshold": float(non_road_threshold),
         "device": device,
+        "requested_region": requested_region,
+        "region": region,
+        "crack_segmentation": bool(crack_segmentation),
     }
 
 
@@ -465,6 +580,7 @@ def print_summary(summary: dict[str, Any], console: Console | None = None) -> No
     table.add_column("Metric")
     table.add_column("Value")
     table.add_row("Frames analyzed", str(summary["frames_analyzed"]))
+    table.add_row("Region mode", f"{summary.get('region')} (requested: {summary.get('requested_region')})")
     table.add_row("Dominant surface", str(summary["dominant_surface_type"]))
     table.add_row("Mean confidence", f"{summary['mean_confidence']:.3f}")
     if summary.get("mean_crack_ratio") is not None:

@@ -74,9 +74,10 @@ Datasets and model checkpoints are **not** committed to git (see `.gitignore`); 
 uv run tarmac analyze path/to/photo.jpg
 uv run tarmac analyze path/to/images --out runs/my-road
 uv run tarmac analyze path/to/video.mp4 --fps 2 --out runs/my-video
+uv run tarmac analyze path/to/runway-images --region full
 ```
 
-Video requires `ffmpeg` (`brew install ffmpeg`). Each run writes `results.parquet`, `tiles.parquet`, `summary.json` and thumbnails into the run directory.
+Video requires `ffmpeg` (`brew install ffmpeg`). Each run writes `results.parquet`, `tiles.parquet`, `summary.json` and thumbnails into the run directory. Region mode defaults to `--region auto`: it classifies a coarse full-frame 3x3 grid and uses lower-half tiles for street scenes with sky/non-road in the top row, otherwise full-frame 3x3 tiles for top-down runway/pavement images. Use `--region lower_half` or `--region full` to force the mode.
 
 ### Generate an HTML report
 
@@ -84,7 +85,7 @@ Video requires `ffmpeg` (`brew install ffmpeg`). Each run writes `results.parque
 uv run tarmac report runs/my-video      # -> runs/my-video/report.html
 ```
 
-Headline stats, a quality timeline, cracked-section overlays when a crack head is present, a UMAP scatter of the run inside the reference space, a GPS map (when EXIF GPS exists), and a thumbnail gallery.
+Headline stats, a quality timeline, cracked-section overlays when a crack head is present, crack geometry overlays when segmentation ran, a UMAP scatter of the run inside the reference space, a GPS map (when EXIF GPS exists), and a thumbnail gallery.
 
 ### Crack & runway detection
 
@@ -100,7 +101,17 @@ uv run tarmac train-crack                # requires Apple MPS; no CPU fallback
 uv run tarmac evaluate-crack
 ```
 
-When `models/crack_head.pt` exists, `tarmac analyze` adds `tile_crack_prob` and `tile_crack` to `tiles.parquet`, plus per-frame `crack_ratio` and `frame_has_crack` in `results.parquet`. `tarmac report` then includes a **Cracked sections** panel with a crack-ratio timeline and 3x2 red tile overlays showing which road/runway sections are cracked.
+When `models/crack_head.pt` exists, `tarmac analyze` adds `tile_crack_prob` and `tile_crack` to `tiles.parquet`, plus per-frame `crack_ratio` and `frame_has_crack` in `results.parquet`. `tarmac report` then includes a **Cracked sections** panel with a crack-ratio timeline and red tile overlays showing which road/runway sections are cracked.
+
+Pixel-level crack geometry is available without mask training data through a hybrid segmenter: crack-head sliding-window localization plus classical dark thin-ridge extraction (`frangi`/`sato` vesselness, black-hat morphology, cleanup, skeleton measurements). It produces full-resolution red mask overlays and measures area, length, mean width, max width, and component count.
+
+```bash
+uv run tarmac crack-measure path/to/image-or-dir --out runs/crack-geometry
+uv run tarmac crack-measure path/to/image-or-dir --mm-per-pixel 0.5 --out runs/crack-geometry-mm
+uv run tarmac analyze path/to/runway.jpg --region full --crack-segmentation --mm-per-pixel 0.5
+```
+
+`analyze` also runs crack segmentation automatically when a crack head exists and the selected region is `full`. Geometry columns include `crack_area_px`, `crack_area_pct`, `crack_length_px`, `crack_mean_width_px`, and metric variants when `--mm-per-pixel` is provided. See `reports/CRACK_SEGMENTATION.md`.
 
 Runway-specific Roboflow data is integrated through the Roboflow REST API and requires a free API key:
 
@@ -112,7 +123,7 @@ uv run tarmac prepare-cracks
 
 Get the key from Roboflow account settings. The downloader uses the Roboflow REST API for `revathi-deusp/runway-crack-detection-1iq1l` and converts crack/mildcrack/severecrack bounding boxes into tile-level crack labels. Current held-out runway-only metrics are: validation F1 `0.9130`, ROC-AUC `0.9156`; test F1 `0.9091`, ROC-AUC `0.9841`. See `reports/CRACK_DETECTION.md` for the full per-source table.
 
-Caveats for runway use: the current Roboflow pull is small (40 annotated images → ~240 tiles), so runway-only metrics are directionally useful but not statistically strong — add more runway imagery to harden them. The street-level tiling assumes the road is in the lower half of the frame; for top-down/drone runway imagery the *non-road* gate can suppress whole frames (`road_tile_count = 0`). For those views, run analyze with a lower or disabled non-road threshold (`--non-road-threshold`) so every tile is scored.
+Caveats for runway use: the current Roboflow pull is small (40 annotated images → ~240 tiles), so runway-only metrics are directionally useful but not statistically strong; add more runway imagery to harden them. Top-down/drone runway imagery should use `--region full` or the default `--region auto`, which now selects full-frame tiles when the top row looks like pavement rather than sky/non-road.
 
 ### Visualize a folder of images in the vector space
 

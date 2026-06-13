@@ -45,6 +45,7 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
 
     timeline = quality_timeline(df)
     crack_panel = cracked_sections_panel(run_dir, df)
+    crack_geometry = crack_geometry_panel(run_dir, df)
     scatter = umap_scatter(ref_xy, ref_df, run_xy, df)
     gps = gps_scatter(df) if {"latitude", "longitude"}.issubset(df.columns) else ""
     gallery = gallery_html(run_dir, df)
@@ -77,6 +78,9 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     .crack-tile {{ position: absolute; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.75); }}
     .crack-tile.hot {{ background: rgba(210, 36, 36, 0.45); border-color: rgba(210, 36, 36, 0.9); }}
     .crack-meta {{ padding: 9px; font-size: 13px; line-height: 1.35; }}
+    .measure-table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+    .measure-table th, .measure-table td {{ border-bottom: 1px solid #dde2e7; padding: 8px; text-align: left; }}
+    .measure-table th {{ background: #f1f4f7; }}
   </style>
 </head>
 <body>
@@ -89,6 +93,7 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     <h2>Quality Timeline</h2>
     <div class="panel">{timeline}</div>
     {crack_panel}
+    {crack_geometry}
     <h2>Embedding Map</h2>
     <div class="panel">{scatter}</div>
     {gps}
@@ -200,22 +205,76 @@ def crack_overlay_gallery(run_dir: Path, df: pd.DataFrame) -> str:
 
 
 def _tile_overlay(tile: dict[str, Any]) -> str:
-    tile_name = str(tile.get("tile", "tile_0"))
-    try:
-        index = int(tile_name.split("_")[-1])
-    except ValueError:
-        index = 0
-    row = index // 3
-    col = index % 3
-    left = col * (100.0 / 3.0)
-    top = 50.0 + row * 25.0
+    if tile.get("tile_box"):
+        left_px, top_px, right_px, lower_px = [float(x) for x in tile["tile_box"]]
+        width_pct = max(0.0, right_px - left_px)
+        height_pct = max(0.0, lower_px - top_px)
+        source_w = max(float(tile.get("image_width", right_px)), 1.0)
+        source_h = max(float(tile.get("image_height", lower_px)), 1.0)
+        left = left_px / source_w * 100.0
+        top = top_px / source_h * 100.0
+        width = width_pct / source_w * 100.0
+        height = height_pct / source_h * 100.0
+    else:
+        width = 100.0 / 3.0
+        height = 25.0
+        top_base = 50.0
+        if tile.get("region") == "full":
+            height = 100.0 / 3.0
+            top_base = 0.0
+        tile_name = str(tile.get("tile", "tile_0"))
+        try:
+            index = int(tile_name.split("_")[-1])
+        except ValueError:
+            index = 0
+        row = index // 3
+        col = index % 3
+        left = col * (100.0 / 3.0)
+        top = top_base + row * height
     hot = bool(tile.get("tile_crack", False))
     prob = float(tile.get("tile_crack_prob", 0.0) or 0.0)
     cls = "crack-tile hot" if hot else "crack-tile"
+    tile_name = str(tile.get("tile", "tile_0"))
     return (
         f'<div class="{cls}" title="{tile_name}: crack probability {prob:.3f}" '
-        f'style="left:{left:.4f}%;top:{top:.4f}%;width:33.3333%;height:25%;"></div>'
+        f'style="left:{left:.4f}%;top:{top:.4f}%;width:{width:.4f}%;height:{height:.4f}%;"></div>'
     )
+
+
+def crack_geometry_panel(run_dir: Path, df: pd.DataFrame) -> str:
+    if "crack_area_pct" not in df.columns:
+        return ""
+    rows = []
+    cards = []
+    for row in df.itertuples():
+        overlay_rel = getattr(row, "crackseg_overlay_path", None)
+        overlay = run_dir / overlay_rel if isinstance(overlay_rel, str) else None
+        area_pct = float(getattr(row, "crack_area_pct", 0.0) or 0.0)
+        length_px = int(getattr(row, "crack_length_px", 0) or 0)
+        mean_width_px = float(getattr(row, "crack_mean_width_px", 0.0) or 0.0)
+        rows.append(
+            f"<tr><td>{row.filename}</td><td>{area_pct:.4f}%</td>"
+            f"<td>{length_px}</td><td>{mean_width_px:.2f}</td></tr>"
+        )
+        if overlay is not None and overlay.exists():
+            src = image_to_base64(overlay)
+            cards.append(
+                f"""<article class="crack-card">
+  <img src="data:image/png;base64,{src}" alt="{row.filename} crack geometry">
+  <div class="crack-meta"><b>{area_pct:.4f}%</b> area<br>{length_px} px length<br>{row.filename}</div>
+</article>"""
+            )
+    table = (
+        '<table class="measure-table"><thead><tr><th>Frame</th><th>Area</th>'
+        '<th>Length px</th><th>Mean width px</th></tr></thead><tbody>'
+        + "\n".join(rows)
+        + "</tbody></table>"
+    )
+    return f"""
+    <h2 id="crack-geometry">Crack geometry</h2>
+    <div class="panel">{table}</div>
+    <div class="crack-grid">{''.join(cards)}</div>
+"""
 
 
 def umap_scatter(

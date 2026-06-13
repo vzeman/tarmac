@@ -94,6 +94,16 @@ Plan:
 4. Optional crack **heatmap** (Level 3) via segmentation head on dense patch tokens (CRACK500/DeepCrack masks) for overlay showing exact crack location within a section.
 5. Validate on held-out crack tiles + a runway sample; report precision/recall for crack vs non-crack.
 
+### Phase 7c — Full-frame crack segmentation and measurement (user-requested 2026-06-13)
+Goal: make top-down runway/pavement analysis cover the whole frame and move from rectangular crack tile flags to pixel-level crack geometry.
+Implemented:
+1. Tiling supports `region="lower_half"` and `region="full"`; full-frame mode defaults to a 3x3 grid over the entire image. `tarmac analyze --region auto` embeds a coarse full-frame 3x3 grid and chooses lower-half only when the top row is mostly non-road/sky-like; runway/top-down pavement selects full.
+2. `src/tarmac/crack/segment.py` provides hybrid segmentation with no mask training requirement: sliding-window crack-head heatmap localization, dark thin-ridge extraction with `skimage` vesselness and black-hat morphology, cleanup, skeletonization, distance-transform width estimation, measurements, and red full-resolution overlays.
+3. `tarmac crack-measure <image|dir>` writes `<name>_crackseg.png`, `crack_measurements.csv`, and `crack_measurements.parquet` with area, area percent, length, width, and optional metric units from `--mm-per-pixel`.
+4. `tarmac analyze` writes crack geometry columns and full-resolution crackseg overlays when `--crack-segmentation` is set, or automatically when the crack head exists and the chosen region is full.
+5. `tarmac report` includes a Crack geometry section with the mask overlays and measurement table.
+6. Optional learned segmenter remains skipped for now: the local CRACK500/DeepCrack directories contain code mirrors but no usable masks, and Roboflow Universe does not expose a public API search endpoint for discovering arbitrary segmentation datasets. See `reports/CRACK_SEGMENTATION.md`.
+
 ## Management protocol
 - Each phase executed by **local codex CLI** (`codex exec`), one detailed task prompt per phase; Claude reviews diffs/outputs, runs smoke tests, iterates with codex on failures.
 - Definition of done per phase: code runs end-to-end via documented command, produces artifact (manifest/embeddings/metrics/report), reviewed by Claude.
