@@ -78,6 +78,22 @@ Final metrics doc (`EVALUATION.md`), comparison table frozen vs fine-tuned, erro
 5. Inference/report/UI extended: per-tile defect probabilities, defect overlay rendering, defect filters in scatter plot.
 Order: Levels 1+2 right after Phase 5 MVP; Level 3 afterwards.
 
+### Phase 7b — Runway crack detection (user-requested 2026-06-13)
+Goal: identify which sections of an airport runway are cracked. Runway pavement is the same asphalt/concrete with the same crack morphology as roads, so road/concrete crack data transfers; runway-specific imagery (top-down drone / dashcam concrete slabs) improves domain match.
+Crack datasets:
+| Dataset | Access | Content |
+|---|---|---|
+| Concrete & Pavement Crack (Mendeley `429vzbgmbx`) | keyless public API, CC BY 4.0 | 30k 227×227 images, binary crack / non-crack (concrete + pavement) |
+| CRACK500, DeepCrack | GitHub, keyless | pixel-wise crack masks (asphalt + concrete) for segmentation/heatmaps |
+| Roboflow `revathi-deusp/runway-crack-detection-1iq1l` | needs free `ROBOFLOW_API_KEY` | runway-specific, classes crack/mildcrack/severecrack (bbox) → convert to tile crack labels |
+| ARID (Zenodo 10699570) | paper only, data not in record | reference; not auto-downloadable |
+Plan:
+1. Downloaders: Mendeley concrete+pavement (run now), CRACK500/DeepCrack (run now); Roboflow runway set implemented but gated on `ROBOFLOW_API_KEY` with clear instructions (do not block).
+2. Build a separate **crack-detection track** (NOT mixed into quality 1–5): `has_crack` tile labels manifest. Tile cropping for bbox/mask datasets → positive tiles overlap crack regions.
+3. **Crack classifier head** on active DINOv3 tile embeddings (crack probability per tile); integrate into `tarmac analyze` so every road/runway tile gets a crack flag → report highlights cracked sections + per-section crack ratio.
+4. Optional crack **heatmap** (Level 3) via segmentation head on dense patch tokens (CRACK500/DeepCrack masks) for overlay showing exact crack location within a section.
+5. Validate on held-out crack tiles + a runway sample; report precision/recall for crack vs non-crack.
+
 ## Management protocol
 - Each phase executed by **local codex CLI** (`codex exec`), one detailed task prompt per phase; Claude reviews diffs/outputs, runs smoke tests, iterates with codex on failures.
 - Definition of done per phase: code runs end-to-end via documented command, produces artifact (manifest/embeddings/metrics/report), reviewed by Claude.
