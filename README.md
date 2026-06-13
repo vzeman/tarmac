@@ -176,9 +176,9 @@ uv run tarmac yolo-benchmark
 uv run tarmac yolo-detect path/to/runway-or-road-images --out runs/yolo_detect
 ```
 
-Training is MPS-only by design (`device=mps`); if Apple MPS is unavailable, YOLO training fails loudly instead of silently falling back to CPU. Current smoke-run headline on this M3 Max: crack segmentation ONNX is 11.0 MB and runs at 20.6 ms CPU / 3.4 ms MPS per image; classification ONNX exports are 5.9 MB and run at about 4.4-4.5 ms CPU / 1.7-1.8 ms MPS. Accuracy from the short smoke run is below the DINOv3 teacher: YOLO type top-1 `0.803` vs DINOv3 `0.954`; YOLO quality off-by-one `0.929` vs DINOv3 `0.999`; YOLO crack mask mAP50 `0.041` after only 5 epochs. See `reports/YOLO_MOBILE.md` and `reports/yolo_benchmark.json`.
+Training is MPS-only by design (`device=mps`); if Apple MPS is unavailable, YOLO training fails loudly instead of silently falling back to CPU. Final full-training headline on this M3 Max: selected YOLO11n-seg crack segmentation reaches mask mAP50 `0.1853` / mAP50-95 `0.0389` and runs at `18.6 ms` CPU / `5.5 ms` MPS per image; YOLO11s-seg was also trained and tested lower at mask mAP50 `0.1536` / mAP50-95 `0.0293`. YOLO11n-cls type reaches top-1 `0.8436` vs DINOv3 `0.954`; YOLO11s-cls quality is kept as the better quality model with top-1 `0.5026` and off-by-one `0.9459` vs DINOv3 off-by-one `0.999`. On `/tmp/tarmac_runway_test`, YOLO detection correctly handled `10/12` images (`9/10` cracked detected, `1/2` non-cracked rejected). See `reports/YOLO_MOBILE.md` and `reports/yolo_benchmark.json`.
 
-Deploy the ONNX files with ONNX Runtime Mobile, or install the missing export toolchains and rerun `tarmac yolo-export` for native formats: `coremltools` for iOS CoreML `.mlpackage` and TensorFlow/TFLite tooling for Android `.tflite`. CoreML and TFLite were unavailable in this environment and are reported as export caveats.
+Deploy the ONNX files with ONNX Runtime Mobile for Android/edge inference. CoreML export was enabled with `coremltools`, but Ultralytics conversion failed for all three models with `only 0-dimensional arrays can be converted to Python scalars`, so this run does not include iOS `.mlpackage` artifacts. TensorFlow/TFLite export was intentionally not attempted on this Mac because the TensorFlow toolchain is heavy and fragile here; ONNX covers the Android path.
 
 ### Visualize a folder of images in the vector space
 
@@ -227,4 +227,4 @@ PLAN.md       full architecture, decisions and phase plan
 
 ## Roadmap
 
-Built so far: data pipeline, embeddings, contrastive fine-tuning, clustering, evaluation, inference, reports, folder visualization, UI, Phase 7 crack/runway analysis, and Phase 8 YOLO mobile students for crack segmentation plus type/quality classification. Next (see `PLAN.md`): longer YOLO training runs, native CoreML/TFLite export toolchains, broader multi-label defect types, and defect-aware embeddings.
+Built so far: data pipeline, embeddings, contrastive fine-tuning, clustering, evaluation, inference, reports, folder visualization, UI, Phase 7 crack/runway analysis, and Phase 8 full-training YOLO mobile students for crack segmentation plus type/quality classification. Next (see `PLAN.md`): resolve native CoreML export, broaden multi-label defect types, and add defect-aware embeddings.

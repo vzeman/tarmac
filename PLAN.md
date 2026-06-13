@@ -113,11 +113,16 @@ Implemented:
 3. `tarmac yolo-train-seg` trains YOLO11n-seg or YOLO11s-seg on Apple MPS only. CPU fallback is rejected explicitly so training either uses MPS or fails loudly.
 4. `tarmac yolo-prep-cls` crops lower-half 3x2 StreetSurfaceVis road tiles from the processed manifest and builds two ImageFolder classification datasets: surface type and quality grade.
 5. `tarmac yolo-train-cls --target type|quality` trains YOLO11n-cls students on MPS only. Quality reports both top-1 and off-by-one accuracy; `--distill` is present as an explicit future hook for DINOv3 pseudo-labeling.
-6. `tarmac yolo-export --task seg|cls_type|cls_quality` exports best weights to mobile-oriented formats through Ultralytics. ONNX is produced in the current environment; CoreML and TFLite are best-effort and report missing `coremltools` / `tensorflow` when unavailable.
+6. `tarmac yolo-export --task seg|cls_type|cls_quality` exports best weights to mobile-oriented formats through Ultralytics. ONNX is produced for Android/edge deployment through ONNX Runtime Mobile. CoreML export is enabled with `coremltools`, but the current Ultralytics/CoreML conversion fails with `only 0-dimensional arrays can be converted to Python scalars`; TensorFlow/TFLite is intentionally not attempted on this Mac because the toolchain is heavy and fragile here.
 7. `tarmac yolo-detect <image|dir>` runs the YOLO segmentation model, renders red crack overlays, and reuses the existing crack geometry measurement code so outputs are comparable with the DINOv3/classical crack pipeline.
 8. `tarmac yolo-benchmark` writes `reports/YOLO_MOBILE.md` and `reports/yolo_benchmark.json` with parameters, file sizes, CPU/MPS latency, and metric headlines.
 
-Current smoke metrics are intentionally modest because the local run capped epochs for time: YOLO11n-seg mask mAP50 is 0.041 after 5 epochs; YOLO11n-cls type top-1 is 0.803 after 1 epoch; YOLO11n-cls quality off-by-one is 0.929 after 1 epoch. The default training commands remain longer (`seg=100` epochs, `cls=50`) and should be used for production-quality mobile students.
+Final full-training results on 2026-06-13, MPS-only with seed 42:
+- Crack segmentation: YOLO11n-seg trained for 200 epochs at 512 px and is the selected default with held-out mask mAP50 `0.1853`, mAP50-95 `0.0389`; YOLO11s-seg also trained for 200 epochs and tested lower at mask mAP50 `0.1536`, mAP50-95 `0.0293`.
+- Surface type classification: YOLO11n-cls trained for 100 epochs at 224 px and reached test top-1 `0.8436` vs DINOv3 `0.954`.
+- Quality classification: YOLO11n-cls reached test top-1 `0.5064`, off-by-one `0.9390`; because off-by-one was below `0.95`, YOLO11s-cls quality was also trained and kept as the better model with test top-1 `0.5026`, off-by-one `0.9459` vs DINOv3 off-by-one `0.999`.
+- Export/latency: ONNX exports are available (`seg` `11.0 MB`, `type` `5.9 MB`, `quality` `20.8 MB`). Benchmark on `/tmp/tarmac_runway_test` gives crack segmentation `18.6 ms` CPU / `5.5 ms` MPS, type `3.7 ms` CPU / `1.5 ms` MPS, and quality `5.3 ms` CPU / `1.5 ms` MPS.
+- Runway smoke inference: `tarmac yolo-detect /tmp/tarmac_runway_test --out runs/yolo_detect_final --device mps` correctly handled `10/12` images (`9/10` cracked detected, `1/2` non-cracked rejected).
 
 ## Management protocol
 - Each phase executed by **local codex CLI** (`codex exec`), one detailed task prompt per phase; Claude reviews diffs/outputs, runs smoke tests, iterates with codex on failures.

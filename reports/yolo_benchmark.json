@@ -1,66 +1,181 @@
 {
+  "caveats": [
+    "CoreML export was enabled with coremltools but failed for all three tasks: only 0-dimensional arrays can be converted to Python scalars.",
+    "TensorFlow/TFLite export was intentionally not attempted on this Mac; ONNX covers Android through ONNX Runtime Mobile.",
+    "CrackAirport contains many background/empty-mask images and sparse crack labels, so segmentation mAP remains modest."
+  ],
+  "classification_variants": {
+    "quality_n": {
+      "epochs": 100,
+      "imgsz": 224,
+      "model": "yolo11n-cls.pt",
+      "off_by_one": 0.9390034364261168,
+      "top1": 0.5064433217048645
+    },
+    "quality_s": {
+      "epochs": 100,
+      "imgsz": 224,
+      "model": "yolo11s-cls.pt",
+      "off_by_one": 0.9458762886597938,
+      "top1": 0.5025773048400879
+    },
+    "selected_quality": "quality_s",
+    "selection_metric": "held_out_off_by_one",
+    "type": {
+      "epochs": 100,
+      "imgsz": 224,
+      "model": "yolo11n-cls.pt",
+      "top1": 0.8436425924301147
+    }
+  },
+  "date": "2026-06-13",
+  "device": "mps",
+  "dino_baselines": {
+    "quality_off_by_one": 0.999,
+    "type_top1": 0.954
+  },
+  "export_summary": {
+    "cls_quality": {
+      "errors": {
+        "coreml": "only 0-dimensional arrays can be converted to Python scalars"
+      },
+      "produced": {
+        "onnx": {
+          "path": "models/yolo/export/cls_quality/best.onnx",
+          "size_mb": 20.79867458343506
+        }
+      },
+      "task": "cls_quality",
+      "weights": "models/yolo/cls_quality/weights/best.pt"
+    },
+    "cls_type": {
+      "errors": {
+        "coreml": "only 0-dimensional arrays can be converted to Python scalars"
+      },
+      "produced": {
+        "onnx": {
+          "path": "models/yolo/export/cls_type/best.onnx",
+          "size_mb": 5.890345573425293
+        }
+      },
+      "task": "cls_type",
+      "weights": "models/yolo/cls_type/weights/best.pt"
+    },
+    "seg": {
+      "errors": {
+        "coreml": "only 0-dimensional arrays can be converted to Python scalars"
+      },
+      "produced": {
+        "onnx": {
+          "path": "models/yolo/export/seg/best.onnx",
+          "size_mb": 11.030259132385254
+        }
+      },
+      "task": "seg",
+      "weights": "models/yolo/crack_seg/weights/best.pt"
+    }
+  },
   "images": 12,
-  "iterations": 3,
+  "iterations": 20,
   "models": [
     {
       "available": true,
-      "cpu_fps": 46.92830992270954,
-      "cpu_ms": 21.30909895640798,
+      "cpu_fps": 53.67429181241925,
+      "cpu_ms": 18.63089323087479,
       "export_errors": {
-        "coreml": "No module named 'coremltools'",
-        "tflite": "No module named 'tensorflow'"
+        "coreml": "only 0-dimensional arrays can be converted to Python scalars"
       },
       "exports": {
-        "best.onnx": 11.030229568481445
+        "best.onnx": 11.030259132385254
       },
-      "mask_map": 0.008504563841705327,
-      "mask_map50": 0.04132110046319104,
+      "mask_map": 0.038877463552444744,
+      "mask_map50": 0.1852905147694936,
       "model": "crack_seg",
-      "mps_fps": 295.06639746242456,
-      "mps_ms": 3.3890677101832503,
+      "mps_fps": 182.91508344730698,
+      "mps_ms": 5.46701770654181,
       "params": 2842803,
       "weights": "models/yolo/crack_seg/weights/best.pt",
-      "weights_size_mb": 5.700534820556641
+      "weights_size_mb": 5.735141754150391
     },
     {
       "available": true,
-      "cpu_fps": 248.9127361662687,
-      "cpu_ms": 4.017472208943218,
+      "cpu_fps": 272.0919146219894,
+      "cpu_ms": 3.6752286498085596,
       "export_errors": {
-        "coreml": "No module named 'coremltools'",
-        "tflite": "No module named 'tensorflow'"
+        "coreml": "only 0-dimensional arrays can be converted to Python scalars"
       },
       "exports": {
         "best.onnx": 5.890345573425293
       },
       "model": "cls_type",
-      "mps_fps": 519.4308690702948,
-      "mps_ms": 1.9251840033878882,
+      "mps_fps": 651.4999515116142,
+      "mps_ms": 1.5349195309681818,
       "params": 1537509,
-      "top1": 0.8032646179199219,
+      "top1": 0.8436425924301147,
       "weights": "models/yolo/cls_type/weights/best.pt",
-      "weights_size_mb": 3.044984817504883
+      "weights_size_mb": 3.050416946411133
     },
     {
       "available": true,
-      "cpu_fps": 240.38993172555624,
-      "cpu_ms": 4.1599079995648935,
+      "cpu_fps": 189.90315590018233,
+      "cpu_ms": 5.2658419248473365,
       "export_errors": {
-        "coreml": "No module named 'coremltools'",
-        "tflite": "No module named 'tensorflow'"
+        "coreml": "only 0-dimensional arrays can be converted to Python scalars"
       },
       "exports": {
-        "best.onnx": 5.890320777893066
+        "best.onnx": 20.79867458343506
       },
       "model": "cls_quality",
-      "mps_fps": 559.8445622426188,
-      "mps_ms": 1.7862100794445723,
-      "off_by_one": 0.9291237113402062,
-      "params": 1537509,
-      "top1": 0.47895190119743347,
+      "mps_fps": 658.5240632528563,
+      "mps_ms": 1.5185473937890492,
+      "off_by_one": 0.9458762886597938,
+      "params": 5449413,
+      "top1": 0.5025773048400879,
       "weights": "models/yolo/cls_quality/weights/best.pt",
-      "weights_size_mb": 3.044984817504883
+      "weights_size_mb": 10.523561477661133
     }
   ],
-  "sample_dir": "/tmp/tarmac_runway_test"
+  "result_type": "full_training_final",
+  "runway_detection": {
+    "correct": 10,
+    "cracked_detected": 9,
+    "cracked_total": 10,
+    "example_overlays": [
+      "runs/yolo_detect_final/overlays/00_noncracked_7bZbwGcaeRuiVafMZ3tJ_images_yolo_crackseg.png",
+      "runs/yolo_detect_final/overlays/02_cracked_ynkmCZTzQgrdhz0tlw5A_download_yolo_crackseg.png",
+      "runs/yolo_detect_final/overlays/03_cracked_p6w6TRpjctUisWyFI21w_download_7__yolo_crackseg.png",
+      "runs/yolo_detect_final/overlays/10_cracked_HxCAWVVoeXB0vMRaJLIV_images_28__yolo_crackseg.png"
+    ],
+    "false_negative": "04_cracked_TZ3vqoJClYFy95tDr6le_images_10_.jpg",
+    "false_positive": "01_noncracked_SZZypQlarGgXvhgeuL6z_images_25_.jpg",
+    "noncracked_rejected": 1,
+    "noncracked_total": 2,
+    "output_dir": "runs/yolo_detect_final",
+    "sample_dir": "/tmp/tarmac_runway_test",
+    "total": 12
+  },
+  "sample_dir": "/tmp/tarmac_runway_test",
+  "seed": 42,
+  "segmentation_variants": {
+    "selected": "yolo11n_seg",
+    "selection_metric": "held_out_mask_map50",
+    "yolo11n_seg": {
+      "box_map": 0.1572563097832038,
+      "box_map50": 0.3008703769714489,
+      "epochs": 200,
+      "imgsz": 512,
+      "mask_map": 0.038877463552444744,
+      "mask_map50": 0.1852905147694936,
+      "model": "yolo11n-seg.pt"
+    },
+    "yolo11s_seg": {
+      "box_map": 0.11152796903501254,
+      "box_map50": 0.25249293914451,
+      "epochs": 200,
+      "imgsz": 512,
+      "mask_map": 0.029309519885458678,
+      "mask_map50": 0.15358022400455185,
+      "model": "yolo11s-seg.pt"
+    }
+  }
 }

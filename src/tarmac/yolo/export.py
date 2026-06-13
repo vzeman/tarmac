@@ -23,7 +23,7 @@ def export_yolo(task: str, weights: Path | None = None, output_dir: Path = Path(
     model = YOLO(str(weights))
     produced: dict[str, dict[str, object]] = {}
     errors: dict[str, str] = {}
-    for fmt in ("onnx", "coreml", "tflite"):
+    for fmt in ("onnx", "coreml"):
         try:
             exported = Path(model.export(format=fmt, imgsz=512 if task == "seg" else 224, device="cpu"))
             target = output_dir / task / exported.name
