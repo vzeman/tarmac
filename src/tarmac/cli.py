@@ -108,6 +108,45 @@ def download_crackairport_cmd(
     )
 
 
+@download_app.command("codebrim")
+def download_codebrim_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/codebrim"),
+        "--output-dir",
+        "-o",
+        help="Directory for the Zenodo CODEBRIM dataset.",
+    ),
+) -> None:
+    """Download CODEBRIM from Zenodo record 2620293."""
+    from tarmac.datasets.codebrim import download_codebrim
+
+    result = download_codebrim(output_dir)
+    console.print(f"CODEBRIM ready: images={result.image_count}, annotations={result.annotations_path}")
+    console.print(result.class_counts)
+
+
+@download_app.command("sdnet2018")
+def download_sdnet2018_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/sdnet2018"),
+        "--output-dir",
+        "-o",
+        help="Directory for the SDNET2018 dataset.",
+    ),
+) -> None:
+    """Download SDNET2018 from a keyless mirror when available."""
+    from tarmac.datasets.sdnet2018 import download_sdnet2018
+
+    result = download_sdnet2018(output_dir)
+    if result.downloaded:
+        console.print(
+            f"SDNET2018 ready: images={result.image_count}, source={result.source}, dir={result.output_dir}"
+        )
+        console.print(result.counts)
+    else:
+        console.print(f"SDNET2018 skipped: {result.message}")
+
+
 @app.command()
 def prepare(
     raw_dir: Path = typer.Option(Path("data/raw"), help="Raw dataset root."),
@@ -136,6 +175,22 @@ def prepare_cracks(
     manifest = build_crack_manifest(raw_dir=raw_dir, output_path=output)
     console.print(f"Crack manifest written to {manifest.path} ({manifest.row_count} rows)")
     console.print(manifest.stats.to_string(index=False))
+
+
+@app.command("prepare-defects")
+def prepare_defects(
+    raw_dir: Path = typer.Option(Path("data/raw"), help="Raw dataset root."),
+    output: Path = typer.Option(
+        Path("data/processed/defect_manifest.parquet"), help="Defect manifest output path."
+    ),
+) -> None:
+    """Build the unified multi-domain, multi-label defect manifest."""
+    from tarmac.datasets.defect_manifest import build_defect_manifest
+
+    manifest = build_defect_manifest(raw_dir=raw_dir, output_path=output)
+    console.print(f"Defect manifest written to {manifest.path} ({manifest.row_count} rows)")
+    console.print(manifest.source_domain_stats.to_string(index=False))
+    console.print(manifest.label_totals.to_string(index=False))
 
 
 @app.command("yolo-prep-seg")
