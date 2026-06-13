@@ -112,6 +112,8 @@ uv run tarmac prepare-cracks
 
 Get the key from Roboflow account settings. The downloader uses the Roboflow REST API for `revathi-deusp/runway-crack-detection-1iq1l` and converts crack/mildcrack/severecrack bounding boxes into tile-level crack labels. Current held-out runway-only metrics are: validation F1 `0.9130`, ROC-AUC `0.9156`; test F1 `0.9091`, ROC-AUC `0.9841`. See `reports/CRACK_DETECTION.md` for the full per-source table.
 
+Caveats for runway use: the current Roboflow pull is small (40 annotated images → ~240 tiles), so runway-only metrics are directionally useful but not statistically strong — add more runway imagery to harden them. The street-level tiling assumes the road is in the lower half of the frame; for top-down/drone runway imagery the *non-road* gate can suppress whole frames (`road_tile_count = 0`). For those views, run analyze with a lower or disabled non-road threshold (`--non-road-threshold`) so every tile is scored.
+
 ### Visualize a folder of images in the vector space
 
 ```bash
