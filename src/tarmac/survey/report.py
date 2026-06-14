@@ -410,6 +410,11 @@ def _index_html(summary: dict[str, Any], samples: pd.DataFrame, problems: pd.Dat
     scatter = _cluster_scatter_div(samples, out_dir=out_dir, include_plotlyjs=True, div_id="cluster-scatter")
     speed_chart = _speed_chart_div(samples, include_plotlyjs=False, div_id="speed-chart")
     table = _problem_table_markup(problems, summary, out_dir=out_dir, table_id="problem-table-index")
+    strip_link = (
+        '      <a href="strip.html">Open continuous strip</a>\n'
+        if (out_dir / "strip.html").exists() or summary.get("strip_html")
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -455,6 +460,7 @@ def _index_html(summary: dict[str, Any], samples: pd.DataFrame, problems: pd.Dat
       <a href="cluster_scatter.html">Open cluster scatter</a>
       <a href="speed_chart.html">Open speed chart</a>
       <a href="problems_table.html">Open problem table</a>
+{strip_link.rstrip()}
       <a href="summary.json">Open summary JSON</a>
     </nav>
     <h2>All-frame cluster scatter</h2>

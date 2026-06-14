@@ -895,6 +895,40 @@ def survey_confirm_cmd(
     console.print(f"Confirmed issue counts: {summary.get('confirmed_problem_issue_counts', {})}")
 
 
+@app.command("strip-view")
+def strip_view_cmd(
+    run_dir: Path = typer.Argument(..., help="Existing survey run directory with frames/ and samples.parquet."),
+    band_frac: float = typer.Option(
+        0.5,
+        "--band-frac",
+        help="Fraction of each frame height to use for the lower road band.",
+    ),
+    ribbon_width: int = typer.Option(
+        512,
+        "--ribbon-width",
+        help="Output ribbon width in pixels before LOD downsampling.",
+    ),
+) -> None:
+    """Build a continuous tiled canvas strip viewer for a survey run."""
+    from tarmac.survey.strip import build_strip_view
+
+    result = build_strip_view(run_dir, band_frac=band_frac, ribbon_width=ribbon_width)
+    table = Table(title="Continuous Strip Viewer")
+    table.add_column("LOD")
+    table.add_column("Dimensions")
+    table.add_column("Tiles", justify="right")
+    for lod in result.lods:
+        table.add_row(
+            f"z{lod['level']}",
+            f"{lod['width']}x{lod['height']}",
+            str(lod["tile_count"]),
+        )
+    console.print(table)
+    console.print(f"Ribbon: {result.ribbon_width}x{result.ribbon_height}")
+    console.print(f"Viewer: {result.html_path}")
+    console.print(f"Manifest: {result.manifest_path}")
+
+
 @app.command("crack-measure")
 def crack_measure(
     path: Path = typer.Argument(..., help="Image file or directory of images to measure."),
