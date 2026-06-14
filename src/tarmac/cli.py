@@ -901,18 +901,34 @@ def strip_view_cmd(
     band_frac: float = typer.Option(
         0.5,
         "--band-frac",
-        help="Fraction of each frame height to use for the lower road band.",
+        help="Legacy lower-road region fraction used to choose the thin band center.",
     ),
     ribbon_width: int = typer.Option(
         512,
         "--ribbon-width",
         help="Output ribbon width in pixels before LOD downsampling.",
     ),
+    strip_fps: float = typer.Option(
+        15.0,
+        "--strip-fps",
+        help="Dense source-video extraction rate. Use 0 to extract every source video frame.",
+    ),
+    band_px: int = typer.Option(
+        24,
+        "--band-px",
+        help="Output height in pixels for each push-broom source-video band.",
+    ),
 ) -> None:
     """Build a continuous tiled canvas strip viewer for a survey run."""
     from tarmac.survey.strip import build_strip_view
 
-    result = build_strip_view(run_dir, band_frac=band_frac, ribbon_width=ribbon_width)
+    result = build_strip_view(
+        run_dir,
+        band_frac=band_frac,
+        ribbon_width=ribbon_width,
+        strip_fps=strip_fps,
+        band_px=band_px,
+    )
     table = Table(title="Continuous Strip Viewer")
     table.add_column("LOD")
     table.add_column("Dimensions")
@@ -925,6 +941,7 @@ def strip_view_cmd(
         )
     console.print(table)
     console.print(f"Ribbon: {result.ribbon_width}x{result.ribbon_height}")
+    console.print(f"Bands: {result.band_count} at strip-fps={result.strip_fps:g}, band-px={band_px}")
     console.print(f"Viewer: {result.html_path}")
     console.print(f"Manifest: {result.manifest_path}")
 

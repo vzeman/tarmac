@@ -4,13 +4,16 @@ import html
 import json
 import math
 import shutil
+import subprocess
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Iterator
 
 import pandas as pd
-from PIL import Image, ImageDraw
+from PIL import Image
 
 
 TILE_SIZE = 1024
@@ -18,6 +21,9 @@ MAX_LOD_LEVELS = 4
 GAP_COLOR = (245, 130, 32)
 BACKGROUND_COLOR = (18, 24, 32)
 EARTH_RADIUS_M = 6_371_008.8
+DEFAULT_STRIP_FPS = 15.0
+DEFAULT_BAND_PX = 24
+DEFAULT_ROAD_BAND_FRAC = 0.5
 
 
 @dataclass(frozen=True)
@@ -27,33 +33,38 @@ class StripBuildResult:
     manifest_path: Path
     ribbon_width: int
     ribbon_height: int
+    band_count: int
+    strip_fps: float
     lods: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
-class _FrameBand:
-    sample_order: int
-    frame_index: int
-    image_path: Path
-    source_width: int
-    source_height: int
-    band_y0: int
-    band_y1: int
+class _SourceBand:
+    band_index: int
+    t: float
     y0: int
     y1: int
-    distance_start_m: float | None
-    distance_end_m: float | None
+
+
+@dataclass(frozen=True)
+class _VideoInfo:
+    width: int
+    height: int
+    fps: float | None
+    duration_s: float | None
 
 
 def build_strip_view(
     run_dir: Path,
     *,
-    band_frac: float = 0.5,
+    band_frac: float = DEFAULT_ROAD_BAND_FRAC,
     ribbon_width: int = 512,
+    strip_fps: float = DEFAULT_STRIP_FPS,
+    band_px: int = DEFAULT_BAND_PX,
     tile_size: int = TILE_SIZE,
     max_lod_levels: int = MAX_LOD_LEVELS,
 ) -> StripBuildResult:
-    """Build a continuous tiled strip viewer for a completed survey run."""
+    """Build a continuous push-broom tiled strip viewer for a completed survey run."""
     run_dir = run_dir.expanduser().resolve()
     if not run_dir.exists():
         raise FileNotFoundError(f"Run directory does not exist: {run_dir}")
@@ -61,6 +72,10 @@ def build_strip_view(
         raise ValueError("--band-frac must be greater than 0 and at most 1.")
     if ribbon_width < 64:
         raise ValueError("--ribbon-width must be at least 64 pixels.")
+    if strip_fps < 0.0:
+        raise ValueError("--strip-fps must be zero or greater.")
+    if band_px < 1:
+        raise ValueError("--band-px must be at least 1 pixel.")
     if tile_size < 256:
         raise ValueError("tile_size must be at least 256 pixels.")
 
@@ -71,51 +86,87 @@ def build_strip_view(
     if samples.empty:
         raise ValueError(f"No sampled frames found in {samples_path}")
 
-    frame_paths = [_resolve_frame_path(run_dir, row) for row in samples.itertuples()]
-    first_width, first_height = _image_size(frame_paths[0])
-    crop_height = max(1, int(round(first_height * float(band_frac))))
-    band_y0 = max(0, first_height - crop_height)
-    band_y1 = min(first_height, band_y0 + crop_height)
-    base_band_height = max(1, int(round((band_y1 - band_y0) * int(ribbon_width) / first_width)))
-    spacing = _compute_spacing(samples, base_band_height=base_band_height)
-
+    summary = _load_summary(run_dir)
+    source_video = _resolve_source_video(run_dir, summary)
+    video_info = _probe_video(source_video)
+    effective_duration = _effective_duration(summary, video_info)
+    source_band_y0, source_band_y1, band_center_frac = _source_band_bounds(
+        video_info.height,
+        band_px=int(band_px),
+        band_frac=float(band_frac),
+    )
     strip_dir = run_dir / "strip"
     tiles_dir = strip_dir / "tiles"
     if tiles_dir.exists():
         shutil.rmtree(tiles_dir)
     tiles_dir.mkdir(parents=True, exist_ok=True)
 
-    frame_bands, position_map, gap_markers, ribbon_height = _position_frames(
-        run_dir=run_dir,
-        samples=samples,
-        frame_paths=frame_paths,
-        first_width=first_width,
-        first_height=first_height,
-        band_y0=band_y0,
-        band_y1=band_y1,
-        spacing=spacing,
-    )
-    lods = _build_lods(
+    writer = _ProgressiveTileWriter(
         tiles_dir=tiles_dir,
-        frame_bands=frame_bands,
-        gap_markers=gap_markers,
+        ribbon_width=int(ribbon_width),
+        tile_size=tile_size,
+    )
+    source_bands: list[_SourceBand] = []
+    frame_interval_s = _frame_interval_s(strip_fps=float(strip_fps), video_info=video_info)
+    for band_index, band_image in enumerate(
+        _stream_source_bands(
+            video_path=source_video,
+            ribbon_width=int(ribbon_width),
+            band_px=int(band_px),
+            strip_fps=float(strip_fps),
+            source_band_y0=source_band_y0,
+            source_band_y1=source_band_y1,
+            duration_s=effective_duration,
+        )
+    ):
+        y0, y1 = writer.append_band(band_image)
+        source_bands.append(
+            _SourceBand(
+                band_index=band_index,
+                t=float(band_index) * frame_interval_s,
+                y0=y0,
+                y1=y1,
+            )
+        )
+    ribbon_height = writer.finalize()
+    if not source_bands:
+        raise RuntimeError(f"ffmpeg produced no frames for source video: {source_video}")
+
+    lods = _build_lod_pyramid_from_base(
+        tiles_dir=tiles_dir,
         ribbon_width=int(ribbon_width),
         ribbon_height=ribbon_height,
         tile_size=tile_size,
         max_lod_levels=max_lod_levels,
     )
-    manifest = _manifest_payload(
+    marker_rows = _load_problem_marker_rows(run_dir, summary)
+    position_map, gap_markers, spacing = _dense_position_map(
         run_dir=run_dir,
         samples=samples,
+        problem_rows=marker_rows,
+        source_bands=source_bands,
+        ribbon_height=ribbon_height,
+        band_px=int(band_px),
+    )
+    manifest = _dense_manifest_payload(
+        run_dir=run_dir,
+        samples=samples,
+        source_video=source_video,
+        video_info=video_info,
         position_map=position_map,
         gap_markers=gap_markers,
         lods=lods,
         ribbon_width=int(ribbon_width),
         ribbon_height=ribbon_height,
         band_frac=float(band_frac),
-        band_y0=band_y0,
-        band_y1=band_y1,
-        base_band_height=base_band_height,
+        band_center_frac=band_center_frac,
+        source_band_y0=source_band_y0,
+        source_band_y1=source_band_y1,
+        strip_fps=float(strip_fps),
+        effective_strip_fps=(1.0 / frame_interval_s) if frame_interval_s > 0 else None,
+        band_px=int(band_px),
+        band_count=len(source_bands),
+        duration_s=effective_duration,
         spacing=spacing,
         tile_size=tile_size,
     )
@@ -131,6 +182,8 @@ def build_strip_view(
         manifest_path=manifest_path,
         ribbon_width=int(ribbon_width),
         ribbon_height=ribbon_height,
+        band_count=len(source_bands),
+        strip_fps=float(strip_fps),
         lods=lods,
     )
 
@@ -143,71 +196,532 @@ def _load_samples(samples_path: Path) -> pd.DataFrame:
     return samples.reset_index(drop=True)
 
 
-def _resolve_frame_path(run_dir: Path, row: Any) -> Path:
-    frame_value = str(getattr(row, "frame_image", "") or getattr(row, "frame_thumbnail", "") or "")
-    frame_path = _run_path(run_dir, frame_value) if frame_value else None
-    if frame_path is not None and frame_path.exists():
-        return frame_path
-
-    frame_index = _maybe_int(getattr(row, "frame_index", None))
-    if frame_index is not None:
-        matches = sorted((run_dir / "frames").glob(f"frame_{frame_index:06d}_*.jpg"))
-        if matches:
-            return matches[0]
-    raise FileNotFoundError(f"Missing sampled frame image for frame_index={frame_index}: {frame_value}")
+def _load_summary(run_dir: Path) -> dict[str, Any]:
+    summary_path = run_dir / "summary.json"
+    if not summary_path.exists():
+        raise FileNotFoundError(f"Missing survey summary: {summary_path}")
+    try:
+        return json.loads(summary_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid survey summary JSON: {summary_path}") from exc
 
 
-def _run_path(run_dir: Path, value: str) -> Path | None:
-    if not value:
+def _resolve_source_video(run_dir: Path, summary: dict[str, Any]) -> Path:
+    input_path = str(summary.get("input_path", "") or "")
+    if not input_path:
+        raise FileNotFoundError(f"Missing input_path in {run_dir / 'summary.json'}")
+    candidates: list[Path] = []
+    path = Path(input_path).expanduser()
+    if path.is_absolute():
+        candidates.append(path)
+    else:
+        candidates.extend([run_dir / path, Path.cwd() / path])
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved.exists():
+            return resolved
+    raise FileNotFoundError(f"Source video from summary input_path does not exist: {input_path}")
+
+
+def _probe_video(video_path: Path) -> _VideoInfo:
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height,avg_frame_rate,r_frame_rate,duration:format=duration",
+        "-of",
+        "json",
+        str(video_path),
+    ]
+    try:
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError("ffprobe is required to build strip-view tiles.") from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        raise RuntimeError(f"ffprobe failed for {video_path}: {stderr}") from exc
+    payload = json.loads(result.stdout)
+    streams = payload.get("streams") or []
+    if not streams:
+        raise RuntimeError(f"No video stream found in {video_path}")
+    stream = streams[0]
+    width = _maybe_int(stream.get("width")) or 0
+    height = _maybe_int(stream.get("height")) or 0
+    if width <= 0 or height <= 0:
+        raise RuntimeError(f"Could not determine source video dimensions for {video_path}")
+    fps = _parse_frame_rate(str(stream.get("avg_frame_rate") or "")) or _parse_frame_rate(str(stream.get("r_frame_rate") or ""))
+    duration_s = _json_float(stream.get("duration")) or _json_float((payload.get("format") or {}).get("duration"))
+    return _VideoInfo(width=width, height=height, fps=fps, duration_s=duration_s)
+
+
+def _parse_frame_rate(value: str) -> float | None:
+    if not value or value == "0/0":
         return None
-    path = Path(value).expanduser()
-    if not path.is_absolute():
-        path = run_dir / path
-    return path.resolve()
+    try:
+        if "/" in value:
+            numerator, denominator = value.split("/", 1)
+            den = float(denominator)
+            if den == 0.0:
+                return None
+            rate = float(numerator) / den
+        else:
+            rate = float(value)
+    except ValueError:
+        return None
+    if not math.isfinite(rate) or rate <= 0.0:
+        return None
+    return float(rate)
 
 
-def _image_size(path: Path) -> tuple[int, int]:
-    with Image.open(path) as image:
-        return image.size
+def _effective_duration(summary: dict[str, Any], video_info: _VideoInfo) -> float | None:
+    effective = _json_float(summary.get("effective_duration_seconds"))
+    video_duration = _json_float(summary.get("video_duration_seconds")) or video_info.duration_s
+    clip_seconds = _json_float(summary.get("clip_seconds"))
+    if clip_seconds is not None:
+        return max(0.0, clip_seconds)
+    if effective is None:
+        return video_info.duration_s
+    if video_duration is not None and effective >= float(video_duration) - 0.01:
+        return None
+    return max(0.0, effective)
 
 
-def _compute_spacing(samples: pd.DataFrame, *, base_band_height: int) -> dict[str, Any]:
+def _source_band_bounds(source_height: int, *, band_px: int, band_frac: float) -> tuple[int, int, float]:
+    crop_height = min(max(1, int(band_px)), max(1, int(source_height)))
+    # Preserve the old "lower road band" intent: a 0.5 fraction centers the thin
+    # push-broom sample at 75% frame height, usually the lower-middle roadway.
+    center_frac = min(0.98, max(0.02, 1.0 - float(band_frac) / 2.0))
+    center_y = int(round(float(source_height) * center_frac))
+    y0 = min(max(0, center_y - crop_height // 2), max(0, int(source_height) - crop_height))
+    return y0, y0 + crop_height, center_frac
+
+
+def _frame_interval_s(strip_fps: float, video_info: _VideoInfo) -> float:
+    if strip_fps > 0.0:
+        return 1.0 / float(strip_fps)
+    native_fps = video_info.fps or 30.0
+    return 1.0 / max(0.001, float(native_fps))
+
+
+def _stream_source_bands(
+    *,
+    video_path: Path,
+    ribbon_width: int,
+    band_px: int,
+    strip_fps: float,
+    source_band_y0: int,
+    source_band_y1: int,
+    duration_s: float | None,
+) -> Iterator[Image.Image]:
+    source_band_height = max(1, int(source_band_y1) - int(source_band_y0))
+    filters: list[str] = []
+    if strip_fps > 0.0:
+        filters.append(f"fps={strip_fps:g}")
+    filters.extend(
+        [
+            f"crop=iw:{source_band_height}:0:{int(source_band_y0)}",
+            f"scale={int(ribbon_width)}:{int(band_px)}:flags=lanczos",
+            "format=rgb24",
+        ]
+    )
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(video_path),
+        "-map",
+        "0:v:0",
+        "-an",
+        "-sn",
+        "-dn",
+    ]
+    if duration_s is not None and duration_s > 0.0:
+        command.extend(["-t", f"{float(duration_s):.6f}"])
+    command.extend(
+        [
+            "-vf",
+            ",".join(filters),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "pipe:1",
+        ]
+    )
+    frame_size = int(ribbon_width) * int(band_px) * 3
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except FileNotFoundError as exc:
+        raise RuntimeError("ffmpeg is required to build strip-view tiles.") from exc
+    assert process.stdout is not None
+    assert process.stderr is not None
+    try:
+        while True:
+            chunk = process.stdout.read(frame_size)
+            if not chunk:
+                break
+            if len(chunk) != frame_size:
+                process.kill()
+                raise RuntimeError(
+                    f"ffmpeg produced a partial raw frame for {video_path}: "
+                    f"{len(chunk)} of {frame_size} bytes"
+                )
+            yield Image.frombytes("RGB", (int(ribbon_width), int(band_px)), chunk)
+    finally:
+        stderr = process.stderr.read().decode("utf-8", errors="replace").strip()
+        return_code = process.wait()
+    if return_code != 0:
+        raise RuntimeError(f"ffmpeg failed for {video_path}: {stderr}")
+
+
+class _ProgressiveTileWriter:
+    def __init__(self, *, tiles_dir: Path, ribbon_width: int, tile_size: int) -> None:
+        self.tiles_dir = tiles_dir
+        self.ribbon_width = int(ribbon_width)
+        self.tile_size = int(tile_size)
+        self.cols = max(1, int(math.ceil(self.ribbon_width / self.tile_size)))
+        self.level_dir = self.tiles_dir / "z0"
+        self.level_dir.mkdir(parents=True, exist_ok=True)
+        self.row_index = 0
+        self.row_y = 0
+        self.total_height = 0
+        self._tiles = self._new_row_tiles()
+
+    def append_band(self, band: Image.Image) -> tuple[int, int]:
+        if band.mode != "RGB":
+            band = band.convert("RGB")
+        if band.width != self.ribbon_width:
+            band = band.resize((self.ribbon_width, band.height), Image.Resampling.LANCZOS)
+        band_y0 = self.total_height
+        source_y = 0
+        remaining = band.height
+        while remaining > 0:
+            available = self.tile_size - self.row_y
+            take = min(remaining, available)
+            piece = band.crop((0, source_y, self.ribbon_width, source_y + take))
+            self._paste_piece(piece, self.row_y)
+            self.row_y += take
+            self.total_height += take
+            source_y += take
+            remaining -= take
+            if self.row_y >= self.tile_size:
+                self._flush_row(self.tile_size)
+        return band_y0, self.total_height
+
+    def finalize(self) -> int:
+        if self.row_y > 0 or self.total_height == 0:
+            self._flush_row(max(1, self.row_y))
+        return max(1, self.total_height)
+
+    def _new_row_tiles(self) -> list[Image.Image]:
+        return [
+            Image.new(
+                "RGB",
+                (self._tile_width(col), self.tile_size),
+                BACKGROUND_COLOR,
+            )
+            for col in range(self.cols)
+        ]
+
+    def _tile_width(self, col: int) -> int:
+        x0 = col * self.tile_size
+        x1 = min(self.ribbon_width, x0 + self.tile_size)
+        return max(1, x1 - x0)
+
+    def _paste_piece(self, piece: Image.Image, dest_y: int) -> None:
+        for col, tile in enumerate(self._tiles):
+            x0 = col * self.tile_size
+            x1 = min(self.ribbon_width, x0 + self.tile_size)
+            tile.paste(piece.crop((x0, 0, x1, piece.height)), (0, dest_y))
+
+    def _flush_row(self, height: int) -> None:
+        row_height = min(self.tile_size, max(1, int(height)))
+        for col, tile in enumerate(self._tiles):
+            index = self.row_index * self.cols + col
+            output = tile.crop((0, 0, tile.width, row_height))
+            output.save(self.level_dir / f"{index}.jpg", format="JPEG", quality=84, optimize=True)
+        self.row_index += 1
+        self.row_y = 0
+        self._tiles = self._new_row_tiles()
+
+
+def _build_lod_pyramid_from_base(
+    *,
+    tiles_dir: Path,
+    ribbon_width: int,
+    ribbon_height: int,
+    tile_size: int,
+    max_lod_levels: int,
+) -> list[dict[str, Any]]:
+    levels = max(1, int(max_lod_levels))
+    lods: list[dict[str, Any]] = []
+    for level in range(levels):
+        scale = 2**level
+        width = max(1, int(math.ceil(int(ribbon_width) / scale)))
+        height = max(1, int(math.ceil(int(ribbon_height) / scale)))
+        cols = max(1, int(math.ceil(width / tile_size)))
+        rows = max(1, int(math.ceil(height / tile_size)))
+        lods.append(
+            {
+                "level": int(level),
+                "scale": int(scale),
+                "width": int(width),
+                "height": int(height),
+                "cols": int(cols),
+                "rows": int(rows),
+                "tile_count": int(cols * rows),
+            }
+        )
+        if level > 0:
+            _build_lod_level_from_previous(
+                tiles_dir=tiles_dir,
+                previous=lods[level - 1],
+                current=lods[level],
+                tile_size=tile_size,
+            )
+    return lods
+
+
+def _build_lod_level_from_previous(
+    *,
+    tiles_dir: Path,
+    previous: dict[str, Any],
+    current: dict[str, Any],
+    tile_size: int,
+) -> None:
+    level_dir = tiles_dir / f"z{int(current['level'])}"
+    level_dir.mkdir(parents=True, exist_ok=True)
+    prev_level_dir = tiles_dir / f"z{int(previous['level'])}"
+    prev_width = int(previous["width"])
+    prev_height = int(previous["height"])
+    prev_cols = int(previous["cols"])
+    for row in range(int(current["rows"])):
+        for col in range(int(current["cols"])):
+            x0 = col * tile_size
+            y0 = row * tile_size
+            x1 = min(int(current["width"]), x0 + tile_size)
+            y1 = min(int(current["height"]), y0 + tile_size)
+            prev_x0 = x0 * 2
+            prev_y0 = y0 * 2
+            prev_x1 = min(prev_width, x1 * 2)
+            prev_y1 = min(prev_height, y1 * 2)
+            region = _read_lod_region(
+                level_dir=prev_level_dir,
+                cols=prev_cols,
+                tile_size=tile_size,
+                x0=prev_x0,
+                y0=prev_y0,
+                x1=prev_x1,
+                y1=prev_y1,
+            )
+            tile_width = max(1, x1 - x0)
+            tile_height = max(1, y1 - y0)
+            tile = region.resize((tile_width, tile_height), Image.Resampling.LANCZOS)
+            index = row * int(current["cols"]) + col
+            tile.save(level_dir / f"{index}.jpg", format="JPEG", quality=84, optimize=True)
+
+
+def _read_lod_region(
+    *,
+    level_dir: Path,
+    cols: int,
+    tile_size: int,
+    x0: int,
+    y0: int,
+    x1: int,
+    y1: int,
+) -> Image.Image:
+    region_width = max(1, x1 - x0)
+    region_height = max(1, y1 - y0)
+    region = Image.new("RGB", (region_width, region_height), BACKGROUND_COLOR)
+    col0 = max(0, x0 // tile_size)
+    row0 = max(0, y0 // tile_size)
+    col1 = max(0, (max(x0, x1 - 1)) // tile_size)
+    row1 = max(0, (max(y0, y1 - 1)) // tile_size)
+    for tile_row in range(row0, row1 + 1):
+        for tile_col in range(col0, col1 + 1):
+            index = tile_row * int(cols) + tile_col
+            path = level_dir / f"{index}.jpg"
+            if not path.exists():
+                continue
+            with Image.open(path) as tile_image:
+                tile = tile_image.convert("RGB")
+                tx0 = tile_col * tile_size
+                ty0 = tile_row * tile_size
+                crop_x0 = max(0, x0 - tx0)
+                crop_y0 = max(0, y0 - ty0)
+                crop_x1 = min(tile.width, x1 - tx0)
+                crop_y1 = min(tile.height, y1 - ty0)
+                if crop_x1 <= crop_x0 or crop_y1 <= crop_y0:
+                    continue
+                dest_x = tx0 + crop_x0 - x0
+                dest_y = ty0 + crop_y0 - y0
+                region.paste(tile.crop((crop_x0, crop_y0, crop_x1, crop_y1)), (dest_x, dest_y))
+    return region
+
+
+def _load_problem_marker_rows(run_dir: Path, summary: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = [
+        summary.get("problems_confirmed_parquet"),
+        summary.get("problems_parquet"),
+        "problems_confirmed.parquet",
+        "problems.parquet",
+    ]
+    seen: set[Path] = set()
+    for value in candidates:
+        if not value:
+            continue
+        path = _run_path(run_dir, str(value))
+        if path is None or path in seen:
+            continue
+        seen.add(path)
+        if path.exists():
+            frame = pd.read_parquet(path)
+            if frame.empty:
+                return []
+            sort_cols = [column for column in ["t", "frame_index"] if column in frame.columns]
+            if sort_cols:
+                frame = frame.sort_values(sort_cols, kind="stable")
+            return [dict(row) for row in frame.to_dict("records")]
+    return []
+
+
+def _dense_position_map(
+    *,
+    run_dir: Path,
+    samples: pd.DataFrame,
+    problem_rows: list[dict[str, Any]],
+    source_bands: list[_SourceBand],
+    ribbon_height: int,
+    band_px: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    band_times = [band.t for band in source_bands]
+    band_centers = [float((band.y0 + band.y1) / 2.0) for band in source_bands]
+    sample_centers = [_nearest_band_y(_maybe_float(getattr(row, "t", None)), band_times, band_centers) for row in samples.itertuples()]
+    boundaries = _sample_y_boundaries(sample_centers, ribbon_height)
+    distance_spans, spacing = _sample_distance_spans(samples, ribbon_height=ribbon_height, band_px=band_px)
+    problem_by_sample = _problem_rows_by_sample(samples, problem_rows)
+
+    position_map: list[dict[str, Any]] = []
+    for sample_order, row in enumerate(samples.itertuples()):
+        y0 = boundaries[sample_order]
+        y1 = boundaries[sample_order + 1]
+        frame_index = _maybe_int(getattr(row, "frame_index", None)) or sample_order
+        distance_start, distance_end = distance_spans[sample_order]
+        record = _frame_manifest_record(
+            run_dir=run_dir,
+            row=row,
+            sample_order=sample_order,
+            frame_index=frame_index,
+            y0=y0,
+            y1=y1,
+            distance_start_m=distance_start,
+            distance_end_m=distance_end,
+        )
+        problem = problem_by_sample.get(sample_order)
+        if problem is not None:
+            _apply_problem_overlay(record, problem, run_dir=run_dir)
+        position_map.append(record)
+
+    gap_markers = _dense_gap_markers(spacing.get("gap_specs", []), position_map, band_px=band_px)
+    return position_map, gap_markers, spacing
+
+
+def _nearest_band_y(t: float | None, band_times: list[float], band_centers: list[float]) -> float:
+    if not band_centers:
+        return 0.0
+    if t is None:
+        return band_centers[0]
+    index = bisect_left(band_times, float(t))
+    if index <= 0:
+        return band_centers[0]
+    if index >= len(band_times):
+        return band_centers[-1]
+    before = index - 1
+    after = index
+    return band_centers[before] if abs(band_times[before] - t) <= abs(band_times[after] - t) else band_centers[after]
+
+
+def _sample_y_boundaries(sample_centers: list[float], ribbon_height: int) -> list[int]:
+    if not sample_centers:
+        return [0, max(1, int(ribbon_height))]
+    boundaries = [0]
+    count = len(sample_centers)
+    for index in range(count - 1):
+        midpoint = int(round((sample_centers[index] + sample_centers[index + 1]) / 2.0))
+        remaining = count - index - 1
+        upper = max(boundaries[-1], int(ribbon_height) - remaining)
+        boundary = min(max(boundaries[-1] + 1, midpoint), upper) if ribbon_height >= count else max(boundaries[-1], midpoint)
+        boundaries.append(boundary)
+    boundaries.append(max(1, int(ribbon_height)))
+    return boundaries
+
+
+def _sample_distance_spans(
+    samples: pd.DataFrame,
+    *,
+    ribbon_height: int,
+    band_px: int,
+) -> tuple[list[tuple[float | None, float | None]], dict[str, Any]]:
     pair_distances = _pair_distances(samples)
     pair_times = _pair_times(samples)
-    positive_distances = [value for value in pair_distances if value is not None and value > 0.05]
-    positive_times = [value for value in pair_times if value is not None and value > 0.0]
-    median_distance = _median(positive_distances)
-    median_dt = _median(positive_times) or 1.0
-    has_gps_spacing = median_distance is not None and median_distance >= 0.2
     speed_distances = _speed_distances(samples, pair_times)
-    fallback_distance = median_distance or _median([value for value in speed_distances if value and value > 0.05])
-
-    if has_gps_spacing and fallback_distance:
-        pixels_per_meter = float(base_band_height) / float(fallback_distance)
+    gps_median = _median([value for value in pair_distances if value is not None and value > 0.05])
+    speed_median = _median([value for value in speed_distances if value is not None and value > 0.05])
+    if gps_median is not None and gps_median >= 0.2:
         distance_source = "gps"
-    elif fallback_distance:
-        pixels_per_meter = float(base_band_height) / float(fallback_distance)
+    elif speed_median is not None:
         distance_source = "speed"
     else:
-        pixels_per_meter = None
         distance_source = "uniform"
 
-    distances: list[float | None] = []
-    for gps_distance, speed_distance in zip(pair_distances, speed_distances, strict=True):
-        value: float | None = None
-        if distance_source == "gps" and gps_distance is not None:
-            value = gps_distance
-        elif distance_source in {"gps", "speed"} and speed_distance is not None:
-            value = speed_distance
-        elif fallback_distance is not None:
-            value = fallback_distance
-        distances.append(value)
-    if samples.shape[0] > 0:
-        distances.append(fallback_distance)
+    spans: list[tuple[float | None, float | None]] = []
+    cumulative = 0.0
+    for index in range(len(samples)):
+        segment_distance: float | None = None
+        if index < len(pair_distances):
+            if distance_source == "gps":
+                segment_distance = pair_distances[index] if pair_distances[index] is not None else speed_distances[index]
+            elif distance_source == "speed":
+                segment_distance = speed_distances[index]
+        if segment_distance is not None and math.isfinite(segment_distance) and segment_distance >= 0.0:
+            start = cumulative
+            cumulative += float(segment_distance)
+            spans.append((start, cumulative))
+        elif distance_source == "uniform":
+            spans.append((None, None))
+        else:
+            spans.append((cumulative, cumulative))
 
+    median_dt = _median([value for value in pair_times if value is not None and value > 0.0])
+    gap_specs = _gap_specs(pair_distances=pair_distances, pair_times=pair_times, median_distance=gps_median or speed_median, median_dt=median_dt)
+    pixels_per_meter = float(ribbon_height) / cumulative if cumulative > 0.0 else None
+    return spans, {
+        "distance_source": distance_source,
+        "pixels_per_meter": pixels_per_meter,
+        "median_distance_m": gps_median or speed_median,
+        "median_dt_s": median_dt,
+        "total_distance_m": cumulative if cumulative > 0.0 else None,
+        "gap_specs": gap_specs,
+        "base_band_height": int(band_px),
+    }
+
+
+def _gap_specs(
+    *,
+    pair_distances: list[float | None],
+    pair_times: list[float | None],
+    median_distance: float | None,
+    median_dt: float | None,
+) -> list[dict[str, Any]]:
     gap_markers: list[dict[str, Any]] = []
     gap_distance_threshold = max(25.0, float(median_distance or 0.0) * 5.0)
-    gap_time_threshold = max(5.0, float(median_dt) * 3.0)
+    gap_time_threshold = max(5.0, float(median_dt or 1.0) * 3.0)
     for index, (distance, dt) in enumerate(zip(pair_distances, pair_times, strict=True)):
         reasons: list[str] = []
         if dt is not None and dt > gap_time_threshold:
@@ -223,18 +737,185 @@ def _compute_spacing(samples: pd.DataFrame, *, base_band_height: int) -> dict[st
                     "dt_s": _json_float(dt),
                 }
             )
+    return gap_markers
 
+
+def _problem_rows_by_sample(samples: pd.DataFrame, problem_rows: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    if not problem_rows or samples.empty:
+        return {}
+    sample_times = [_maybe_float(getattr(row, "t", None)) for row in samples.itertuples()]
+    searchable_times = [float(value) if value is not None else math.inf for value in sample_times]
+    frame_to_order: dict[int, int] = {}
+    for sample_order, row in enumerate(samples.itertuples()):
+        frame_index = _maybe_int(getattr(row, "frame_index", None))
+        if frame_index is not None:
+            frame_to_order[frame_index] = sample_order
+    mapped: dict[int, dict[str, Any]] = {}
+    for problem in problem_rows:
+        frame_index = _maybe_int(problem.get("frame_index"))
+        sample_order = frame_to_order.get(frame_index) if frame_index is not None else None
+        if sample_order is None:
+            sample_order = _nearest_sample_order(_maybe_float(problem.get("t")), searchable_times)
+        if sample_order is not None:
+            mapped[sample_order] = problem
+    return mapped
+
+
+def _nearest_sample_order(t: float | None, sample_times: list[float]) -> int | None:
+    if not sample_times:
+        return None
+    if t is None or not math.isfinite(float(t)):
+        return None
+    finite = [value for value in sample_times if math.isfinite(value)]
+    if not finite:
+        return None
+    index = bisect_left(sample_times, float(t))
+    if index <= 0:
+        return 0
+    if index >= len(sample_times):
+        return len(sample_times) - 1
+    before = index - 1
+    after = index
+    before_value = sample_times[before]
+    after_value = sample_times[after]
+    if not math.isfinite(before_value):
+        return after
+    if not math.isfinite(after_value):
+        return before
+    return before if abs(before_value - t) <= abs(after_value - t) else after
+
+
+def _apply_problem_overlay(record: dict[str, Any], problem: dict[str, Any], *, run_dir: Path) -> None:
+    for key in [
+        "quality_grade",
+        "surface_type",
+        "confidence",
+        "crack_detected",
+        "crack_confirmed",
+        "crack_area_pct",
+        "crack_length_px",
+        "is_problem",
+        "problem_image",
+        "thumbnail_image",
+        "telemetry_source",
+    ]:
+        if key in problem:
+            value = problem.get(key)
+            if key in {"quality_grade", "crack_length_px"}:
+                record[key] = _maybe_int(value)
+            elif key in {"confidence", "crack_area_pct"}:
+                record[key] = _json_float(value)
+            elif key in {"crack_detected", "crack_confirmed", "is_problem"}:
+                record[key] = bool(value)
+            else:
+                record[key] = str(value or "")
+    if "issues" in problem:
+        record["issues"] = _json_list(problem.get("issues"))
+    marked_image = _marked_image_for_row(run_dir, SimpleNamespace(**problem))
+    if marked_image:
+        record["marked_image"] = marked_image
+        record["marked_image_filename"] = Path(marked_image).name
+
+
+def _dense_gap_markers(
+    gap_specs: list[dict[str, Any]],
+    position_map: list[dict[str, Any]],
+    *,
+    band_px: int,
+) -> list[dict[str, Any]]:
+    gap_height = max(3, int(round(float(band_px) * 0.25)))
+    markers: list[dict[str, Any]] = []
+    for gap in gap_specs:
+        sample_order = _maybe_int(gap.get("after_sample_order"))
+        if sample_order is None or sample_order < 0 or sample_order >= len(position_map):
+            continue
+        center = int(position_map[sample_order]["y1"])
+        item = dict(gap)
+        item.update({"y0": max(0, center - gap_height // 2), "y1": center + gap_height})
+        markers.append(item)
+    return markers
+
+
+def _dense_manifest_payload(
+    *,
+    run_dir: Path,
+    samples: pd.DataFrame,
+    source_video: Path,
+    video_info: _VideoInfo,
+    position_map: list[dict[str, Any]],
+    gap_markers: list[dict[str, Any]],
+    lods: list[dict[str, Any]],
+    ribbon_width: int,
+    ribbon_height: int,
+    band_frac: float,
+    band_center_frac: float,
+    source_band_y0: int,
+    source_band_y1: int,
+    strip_fps: float,
+    effective_strip_fps: float | None,
+    band_px: int,
+    band_count: int,
+    duration_s: float | None,
+    spacing: dict[str, Any],
+    tile_size: int,
+) -> dict[str, Any]:
+    total_distance = spacing.get("total_distance_m")
+    if total_distance is None:
+        distances = [row.get("distance_end_m") for row in position_map if row.get("distance_end_m") is not None]
+        if distances:
+            total_distance = max(float(value) for value in distances)
     return {
-        "distance_source": distance_source,
-        "pixels_per_meter": pixels_per_meter,
-        "base_band_height": int(base_band_height),
-        "distances_m": distances,
-        "median_distance_m": median_distance,
-        "median_dt_s": median_dt,
-        "gap_specs": gap_markers,
-        "gap_height_px": max(4, int(round(base_band_height * 0.06))),
-        "min_frame_height_px": 8 if distance_source != "uniform" else int(base_band_height),
+        "version": 2,
+        "kind": "tarmac-continuous-strip",
+        "run_name": run_dir.name,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source": {
+            "input_path": str(source_video),
+            "samples": "samples.parquet",
+            "sample_count": int(len(samples)),
+            "source_video_width": int(video_info.width),
+            "source_video_height": int(video_info.height),
+            "source_video_fps": _json_float(video_info.fps),
+            "source_video_duration_s": _json_float(video_info.duration_s),
+        },
+        "ribbon": {
+            "width": int(ribbon_width),
+            "height": int(ribbon_height),
+            "band_px": int(band_px),
+            "band_count": int(band_count),
+            "strip_fps": float(strip_fps),
+            "effective_strip_fps": _json_float(effective_strip_fps),
+            "duration_s": _json_float(duration_s),
+            "band_frac": float(band_frac),
+            "band_center_frac": float(band_center_frac),
+            "source_band_y0": int(source_band_y0),
+            "source_band_y1": int(source_band_y1),
+            "distance_source": str(spacing.get("distance_source", "uniform")),
+            "pixels_per_meter": _json_float(spacing.get("pixels_per_meter")),
+            "median_distance_m": _json_float(spacing.get("median_distance_m")),
+            "median_dt_s": _json_float(spacing.get("median_dt_s")),
+            "total_distance_m": _json_float(total_distance),
+            "perspective_caveat": "Continuous push-broom source-video strip; perspective remains until calibrated top-down rectification.",
+        },
+        "tile_size": int(tile_size),
+        "tiles_root": "strip/tiles",
+        "lods": lods,
+        "gap_markers": gap_markers,
+        "position_to_frame": position_map,
+        "viewer": {
+            "max_tile_cache": 60,
+            "tile_path_template": "strip/tiles/z{level}/{index}.jpg",
+        },
     }
+
+
+def _run_path(run_dir: Path, value: str) -> Path | None:
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = run_dir / path
+    return path.resolve()
 
 
 def _pair_distances(samples: pd.DataFrame) -> list[float | None]:
@@ -277,90 +958,6 @@ def _speed_distances(samples: pd.DataFrame, pair_times: list[float | None]) -> l
         else:
             values.append(None)
     return values
-
-
-def _position_frames(
-    *,
-    run_dir: Path,
-    samples: pd.DataFrame,
-    frame_paths: list[Path],
-    first_width: int,
-    first_height: int,
-    band_y0: int,
-    band_y1: int,
-    spacing: dict[str, Any],
-) -> tuple[list[_FrameBand], list[dict[str, Any]], list[dict[str, Any]], int]:
-    pixels_per_meter = spacing.get("pixels_per_meter")
-    base_band_height = int(spacing["base_band_height"])
-    min_height = int(spacing["min_frame_height_px"])
-    distances = list(spacing["distances_m"])
-    gap_specs = {int(item["after_sample_order"]): item for item in spacing["gap_specs"]}
-    gap_height = int(spacing["gap_height_px"])
-
-    frame_bands: list[_FrameBand] = []
-    position_map: list[dict[str, Any]] = []
-    gap_markers: list[dict[str, Any]] = []
-    y = 0
-    distance_m = 0.0
-    for sample_order, (row, frame_path) in enumerate(zip(samples.itertuples(), frame_paths, strict=True)):
-        source_width, source_height = _image_size(frame_path)
-        if source_width != first_width or source_height != first_height:
-            crop_height = max(1, int(round(source_height * ((band_y1 - band_y0) / first_height))))
-            row_band_y0 = max(0, source_height - crop_height)
-            row_band_y1 = min(source_height, row_band_y0 + crop_height)
-        else:
-            row_band_y0 = band_y0
-            row_band_y1 = band_y1
-
-        segment_distance = distances[sample_order] if sample_order < len(distances) else None
-        if pixels_per_meter is not None and segment_distance is not None:
-            frame_height = max(min_height, int(round(max(0.0, float(segment_distance)) * float(pixels_per_meter))))
-        else:
-            frame_height = base_band_height
-        y0 = y
-        y1 = y + max(1, frame_height)
-        distance_start = distance_m if pixels_per_meter is not None else None
-        if segment_distance is not None and pixels_per_meter is not None:
-            distance_m += max(0.0, float(segment_distance))
-        distance_end = distance_m if pixels_per_meter is not None else None
-        frame_index = _maybe_int(getattr(row, "frame_index", None)) or sample_order
-        frame_bands.append(
-            _FrameBand(
-                sample_order=sample_order,
-                frame_index=frame_index,
-                image_path=frame_path,
-                source_width=source_width,
-                source_height=source_height,
-                band_y0=row_band_y0,
-                band_y1=row_band_y1,
-                y0=y0,
-                y1=y1,
-                distance_start_m=distance_start,
-                distance_end_m=distance_end,
-            )
-        )
-        position_map.append(
-            _frame_manifest_record(
-                run_dir=run_dir,
-                row=row,
-                sample_order=sample_order,
-                frame_index=frame_index,
-                y0=y0,
-                y1=y1,
-                distance_start_m=distance_start,
-                distance_end_m=distance_end,
-            )
-        )
-        y = y1
-        if sample_order in gap_specs:
-            gap_y0 = y
-            gap_y1 = y + gap_height
-            gap = dict(gap_specs[sample_order])
-            gap.update({"y0": gap_y0, "y1": gap_y1})
-            gap_markers.append(gap)
-            y = gap_y1
-
-    return frame_bands, position_map, gap_markers, max(1, y)
 
 
 def _frame_manifest_record(
@@ -432,182 +1029,6 @@ def _marked_image_for_row(run_dir: Path, row: Any) -> str:
     if marked_path.exists():
         return str(marked_path.relative_to(run_dir))
     return ""
-
-
-def _build_lods(
-    *,
-    tiles_dir: Path,
-    frame_bands: list[_FrameBand],
-    gap_markers: list[dict[str, Any]],
-    ribbon_width: int,
-    ribbon_height: int,
-    tile_size: int,
-    max_lod_levels: int,
-) -> list[dict[str, Any]]:
-    levels = max(1, int(max_lod_levels))
-    lods: list[dict[str, Any]] = []
-    for level in range(levels):
-        scale = 2**level
-        width = max(1, int(math.ceil(ribbon_width / scale)))
-        height = max(1, int(math.ceil(ribbon_height / scale)))
-        cols = max(1, int(math.ceil(width / tile_size)))
-        rows = max(1, int(math.ceil(height / tile_size)))
-        level_dir = tiles_dir / f"z{level}"
-        level_dir.mkdir(parents=True, exist_ok=True)
-        for row in range(rows):
-            for col in range(cols):
-                index = row * cols + col
-                tile = _render_tile(
-                    frame_bands=frame_bands,
-                    gap_markers=gap_markers,
-                    ribbon_width=ribbon_width,
-                    level=level,
-                    col=col,
-                    row=row,
-                    lod_width=width,
-                    lod_height=height,
-                    tile_size=tile_size,
-                )
-                tile.save(level_dir / f"{index}.jpg", format="JPEG", quality=84, optimize=True)
-        lods.append(
-            {
-                "level": int(level),
-                "scale": int(scale),
-                "width": int(width),
-                "height": int(height),
-                "cols": int(cols),
-                "rows": int(rows),
-                "tile_count": int(cols * rows),
-            }
-        )
-    return lods
-
-
-def _render_tile(
-    *,
-    frame_bands: list[_FrameBand],
-    gap_markers: list[dict[str, Any]],
-    ribbon_width: int,
-    level: int,
-    col: int,
-    row: int,
-    lod_width: int,
-    lod_height: int,
-    tile_size: int,
-) -> Image.Image:
-    scale = 2**level
-    lod_x0 = col * tile_size
-    lod_y0 = row * tile_size
-    lod_x1 = min(lod_width, lod_x0 + tile_size)
-    lod_y1 = min(lod_height, lod_y0 + tile_size)
-    tile_width = max(1, lod_x1 - lod_x0)
-    tile_height = max(1, lod_y1 - lod_y0)
-    tile = Image.new("RGB", (tile_width, tile_height), BACKGROUND_COLOR)
-    base_x0 = lod_x0 * scale
-    base_x1 = min(ribbon_width, lod_x1 * scale)
-    for frame in frame_bands:
-        base_y0 = max(frame.y0, lod_y0 * scale)
-        base_y1 = min(frame.y1, lod_y1 * scale)
-        if base_y1 <= base_y0 or base_x1 <= base_x0:
-            continue
-        dest_x0 = int(math.floor(base_x0 / scale - lod_x0))
-        dest_x1 = int(math.ceil(base_x1 / scale - lod_x0))
-        dest_y0 = int(math.floor(base_y0 / scale - lod_y0))
-        dest_y1 = int(math.ceil(base_y1 / scale - lod_y0))
-        dest_width = max(1, min(tile_width, dest_x1) - max(0, dest_x0))
-        dest_height = max(1, min(tile_height, dest_y1) - max(0, dest_y0))
-        crop = _crop_frame_for_base_region(frame, base_x0, base_x1, base_y0, base_y1, ribbon_width)
-        band = crop.resize((dest_width, dest_height), Image.Resampling.LANCZOS)
-        tile.paste(band, (max(0, dest_x0), max(0, dest_y0)))
-
-    if gap_markers:
-        draw = ImageDraw.Draw(tile)
-        for gap in gap_markers:
-            gap_y0 = float(gap.get("y0", 0))
-            gap_y1 = float(gap.get("y1", 0))
-            if gap_y1 < lod_y0 * scale or gap_y0 > lod_y1 * scale:
-                continue
-            y0 = int(math.floor(max(gap_y0, lod_y0 * scale) / scale - lod_y0))
-            y1 = int(math.ceil(min(gap_y1, lod_y1 * scale) / scale - lod_y0))
-            draw.rectangle((0, max(0, y0), tile_width, min(tile_height, max(y0 + 1, y1))), fill=GAP_COLOR)
-    return tile
-
-
-def _crop_frame_for_base_region(
-    frame: _FrameBand,
-    base_x0: float,
-    base_x1: float,
-    base_y0: float,
-    base_y1: float,
-    ribbon_width: int,
-) -> Image.Image:
-    source_band_height = max(1, frame.band_y1 - frame.band_y0)
-    frame_height = max(1, frame.y1 - frame.y0)
-    sx0 = int(math.floor((base_x0 / ribbon_width) * frame.source_width))
-    sx1 = int(math.ceil((base_x1 / ribbon_width) * frame.source_width))
-    sy0 = int(math.floor(frame.band_y0 + ((base_y0 - frame.y0) / frame_height) * source_band_height))
-    sy1 = int(math.ceil(frame.band_y0 + ((base_y1 - frame.y0) / frame_height) * source_band_height))
-    sx0 = min(max(0, sx0), frame.source_width - 1)
-    sx1 = min(max(sx0 + 1, sx1), frame.source_width)
-    sy0 = min(max(frame.band_y0, sy0), frame.band_y1 - 1)
-    sy1 = min(max(sy0 + 1, sy1), frame.band_y1)
-    with Image.open(frame.image_path) as image:
-        return image.convert("RGB").crop((sx0, sy0, sx1, sy1))
-
-
-def _manifest_payload(
-    *,
-    run_dir: Path,
-    samples: pd.DataFrame,
-    position_map: list[dict[str, Any]],
-    gap_markers: list[dict[str, Any]],
-    lods: list[dict[str, Any]],
-    ribbon_width: int,
-    ribbon_height: int,
-    band_frac: float,
-    band_y0: int,
-    band_y1: int,
-    base_band_height: int,
-    spacing: dict[str, Any],
-    tile_size: int,
-) -> dict[str, Any]:
-    total_distance = None
-    distances = [row.get("distance_end_m") for row in position_map if row.get("distance_end_m") is not None]
-    if distances:
-        total_distance = max(float(value) for value in distances)
-    return {
-        "version": 1,
-        "kind": "tarmac-continuous-strip",
-        "run_name": run_dir.name,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "source": {
-            "samples": "samples.parquet",
-            "frames_dir": "frames",
-            "sample_count": int(len(samples)),
-        },
-        "ribbon": {
-            "width": int(ribbon_width),
-            "height": int(ribbon_height),
-            "band_frac": float(band_frac),
-            "band_y0": int(band_y0),
-            "band_y1": int(band_y1),
-            "base_band_height": int(base_band_height),
-            "distance_source": str(spacing.get("distance_source", "uniform")),
-            "pixels_per_meter": _json_float(spacing.get("pixels_per_meter")),
-            "median_distance_m": _json_float(spacing.get("median_distance_m")),
-            "median_dt_s": _json_float(spacing.get("median_dt_s")),
-            "total_distance_m": _json_float(total_distance),
-        },
-        "tile_size": int(tile_size),
-        "tiles_root": "strip/tiles",
-        "lods": lods,
-        "gap_markers": gap_markers,
-        "position_to_frame": position_map,
-        "viewer": {
-            "max_tile_cache": 60,
-            "tile_path_template": "strip/tiles/z{level}/{index}.jpg",
-        },
-    }
 
 
 def _viewer_html(manifest: dict[str, Any]) -> str:
