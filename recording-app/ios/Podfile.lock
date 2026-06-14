@@ -1,0 +1,67 @@
+PODS:
+  - camera_avfoundation (0.0.1):
+    - Flutter
+  - Flutter (1.0.0)
+  - geolocator_apple (1.2.0):
+    - Flutter
+    - FlutterMacOS
+  - package_info_plus (0.4.5):
+    - Flutter
+  - path_provider_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - permission_handler_apple (9.4.8):
+    - Flutter
+  - sensors_plus (0.0.1):
+    - Flutter
+  - shared_preferences_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - wakelock_plus (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - camera_avfoundation (from `.symlinks/plugins/camera_avfoundation/ios`)
+  - Flutter (from `Flutter`)
+  - geolocator_apple (from `.symlinks/plugins/geolocator_apple/darwin`)
+  - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
+  - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
+  - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
+  - sensors_plus (from `.symlinks/plugins/sensors_plus/ios`)
+  - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
+  - wakelock_plus (from `.symlinks/plugins/wakelock_plus/ios`)
+
+EXTERNAL SOURCES:
+  camera_avfoundation:
+    :path: ".symlinks/plugins/camera_avfoundation/ios"
+  Flutter:
+    :path: Flutter
+  geolocator_apple:
+    :path: ".symlinks/plugins/geolocator_apple/darwin"
+  package_info_plus:
+    :path: ".symlinks/plugins/package_info_plus/ios"
+  path_provider_foundation:
+    :path: ".symlinks/plugins/path_provider_foundation/darwin"
+  permission_handler_apple:
+    :path: ".symlinks/plugins/permission_handler_apple/ios"
+  sensors_plus:
+    :path: ".symlinks/plugins/sensors_plus/ios"
+  shared_preferences_foundation:
+    :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
+  wakelock_plus:
+    :path: ".symlinks/plugins/wakelock_plus/ios"
+
+SPEC CHECKSUMS:
+  camera_avfoundation: 968a9a5323c79a99c166ad9d7866bfd2047b5a9b
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  geolocator_apple: ab36aa0e8b7d7a2d7639b3b4e48308394e8cef5e
+  package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
+  path_provider_foundation: bb55f6dbba17d0dccd6737fe6f7f34fbd0376880
+  permission_handler_apple: 92d754bbaa7361d436db2d6c3c1c2a0fdcec462e
+  sensors_plus: 6a11ed0c2e1d0bd0b20b4029d3bad27d96e0c65b
+  shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
+  wakelock_plus: e29112ab3ef0b318e58cfa5c32326458be66b556
+
+PODFILE CHECKSUM: 96245ad56be8dabf6c50e07e3ec8a0217b862dae
+
+COCOAPODS: 1.16.2
