@@ -87,32 +87,79 @@ class _RoadSurveyAppState extends State<RoadSurveyApp> {
             ),
             SettingsScreen(settings: _settings, onChanged: _saveSettings),
           ];
-          return Scaffold(
-            appBar: AppBar(title: Text(_titleFor(_selectedIndex))),
-            body: IndexedStack(index: _selectedIndex, children: pages),
-            bottomNavigationBar: NavigationBar(
-              selectedIndex: _selectedIndex,
-              onDestinationSelected: (index) {
-                setState(() => _selectedIndex = index);
-              },
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.videocam_outlined),
-                  selectedIcon: Icon(Icons.videocam),
-                  label: 'Record',
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final isLandscape = constraints.maxWidth > constraints.maxHeight;
+              if (isLandscape) {
+                return Scaffold(
+                  body: SafeArea(
+                    child: Row(
+                      children: [
+                        NavigationRail(
+                          selectedIndex: _selectedIndex,
+                          onDestinationSelected: (index) {
+                            setState(() => _selectedIndex = index);
+                          },
+                          labelType: NavigationRailLabelType.all,
+                          destinations: const [
+                            NavigationRailDestination(
+                              icon: Icon(Icons.videocam_outlined),
+                              selectedIcon: Icon(Icons.videocam),
+                              label: Text('Record'),
+                            ),
+                            NavigationRailDestination(
+                              icon: Icon(Icons.folder_outlined),
+                              selectedIcon: Icon(Icons.folder),
+                              label: Text('Sessions'),
+                            ),
+                            NavigationRailDestination(
+                              icon: Icon(Icons.tune_outlined),
+                              selectedIcon: Icon(Icons.tune),
+                              label: Text('Settings'),
+                            ),
+                          ],
+                        ),
+                        const VerticalDivider(width: 1),
+                        Expanded(
+                          child: IndexedStack(
+                            index: _selectedIndex,
+                            children: pages,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              return Scaffold(
+                appBar: AppBar(title: Text(_titleFor(_selectedIndex))),
+                body: IndexedStack(index: _selectedIndex, children: pages),
+                bottomNavigationBar: NavigationBar(
+                  selectedIndex: _selectedIndex,
+                  onDestinationSelected: (index) {
+                    setState(() => _selectedIndex = index);
+                  },
+                  destinations: const [
+                    NavigationDestination(
+                      icon: Icon(Icons.videocam_outlined),
+                      selectedIcon: Icon(Icons.videocam),
+                      label: 'Record',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.folder_outlined),
+                      selectedIcon: Icon(Icons.folder),
+                      label: 'Sessions',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.tune_outlined),
+                      selectedIcon: Icon(Icons.tune),
+                      label: 'Settings',
+                    ),
+                  ],
                 ),
-                NavigationDestination(
-                  icon: Icon(Icons.folder_outlined),
-                  selectedIcon: Icon(Icons.folder),
-                  label: 'Sessions',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.tune_outlined),
-                  selectedIcon: Icon(Icons.tune),
-                  label: 'Settings',
-                ),
-              ],
-            ),
+              );
+            },
           );
         },
       ),

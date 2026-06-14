@@ -21,52 +21,71 @@ class SessionsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (sessions.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: onRefresh,
-        child: ListView(
-          children: const [
-            SizedBox(height: 160),
-            Center(child: Text('No recorded sessions')),
-          ],
-        ),
-      );
-    }
-    return RefreshIndicator(
-      onRefresh: onRefresh,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(12),
-        itemBuilder: (context, index) {
-          final session = sessions[index];
-          return ListTile(
-            leading: const Icon(Icons.route),
-            title: Text(
-              DateFormat.yMMMd().add_Hm().format(
-                session.startedAtUtc.toLocal(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontalPadding = constraints.maxWidth >= 700 ? 24.0 : 12.0;
+        final padding = EdgeInsets.fromLTRB(
+          horizontalPadding,
+          12,
+          horizontalPadding,
+          20,
+        );
+
+        if (sessions.isEmpty) {
+          return SafeArea(
+            child: RefreshIndicator(
+              onRefresh: onRefresh,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: padding,
+                children: const [
+                  SizedBox(height: 160),
+                  Center(child: Text('No recorded sessions')),
+                ],
               ),
             ),
-            subtitle: Text(
-              '${_formatDuration(Duration(milliseconds: session.durationMs))}  '
-              '${session.frameCount} frames  '
-              '${session.gpsSampleCount} GPS  '
-              '${session.imuSampleCount} IMU',
-            ),
-            trailing: Text(_formatBytes(session.totalBytes)),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => SessionDetailScreen(
-                    session: session,
-                    sessionRepository: sessionRepository,
-                  ),
-                ),
-              );
-            },
           );
-        },
-        separatorBuilder: (context, index) => const Divider(height: 1),
-        itemCount: sessions.length,
-      ),
+        }
+
+        return SafeArea(
+          child: RefreshIndicator(
+            onRefresh: onRefresh,
+            child: ListView.separated(
+              padding: padding,
+              itemBuilder: (context, index) {
+                final session = sessions[index];
+                return ListTile(
+                  leading: const Icon(Icons.route),
+                  title: Text(
+                    DateFormat.yMMMd().add_Hm().format(
+                      session.startedAtUtc.toLocal(),
+                    ),
+                  ),
+                  subtitle: Text(
+                    '${_formatDuration(Duration(milliseconds: session.durationMs))}  '
+                    '${session.frameCount} frames  '
+                    '${session.gpsSampleCount} GPS  '
+                    '${session.imuSampleCount} IMU',
+                  ),
+                  trailing: Text(_formatBytes(session.totalBytes)),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => SessionDetailScreen(
+                          session: session,
+                          sessionRepository: sessionRepository,
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+              separatorBuilder: (context, index) => const Divider(height: 1),
+              itemCount: sessions.length,
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -85,44 +104,66 @@ class SessionDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(session.id)),
-      body: FutureBuilder<List<TrackPoint>>(
-        future: sessionRepository.loadTrackPoints(session),
-        builder: (context, snapshot) {
-          final points = snapshot.data ?? [];
-          return ListView(
-            padding: const EdgeInsets.all(12),
-            children: [
-              SizedBox(height: 300, child: _SessionMap(points: points)),
-              const SizedBox(height: 12),
-              _DetailRow(
-                label: 'Started',
-                value: session.startedAtUtc.toLocal().toString(),
-              ),
-              _DetailRow(
-                label: 'Duration',
-                value: _formatDuration(
-                  Duration(milliseconds: session.durationMs),
-                ),
-              ),
-              _DetailRow(label: 'Frames', value: session.frameCount.toString()),
-              _DetailRow(
-                label: 'GPS samples',
-                value: session.gpsSampleCount.toString(),
-              ),
-              _DetailRow(
-                label: 'IMU samples',
-                value: session.imuSampleCount.toString(),
-              ),
-              _DetailRow(
-                label: 'Size',
-                value: _formatBytes(session.totalBytes),
-              ),
-              _DetailRow(label: 'Video', value: session.videoPath),
-              _DetailRow(label: 'Sidecar', value: session.sidecarPath),
-              _DetailRow(label: 'GPX', value: session.gpxPath),
-            ],
-          );
-        },
+      body: SafeArea(
+        top: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final horizontalPadding = constraints.maxWidth >= 700 ? 24.0 : 12.0;
+            final mapHeight = constraints.maxWidth > constraints.maxHeight
+                ? 220.0
+                : 300.0;
+            return FutureBuilder<List<TrackPoint>>(
+              future: sessionRepository.loadTrackPoints(session),
+              builder: (context, snapshot) {
+                final points = snapshot.data ?? [];
+                return ListView(
+                  padding: EdgeInsets.fromLTRB(
+                    horizontalPadding,
+                    12,
+                    horizontalPadding,
+                    20,
+                  ),
+                  children: [
+                    SizedBox(
+                      height: mapHeight,
+                      child: _SessionMap(points: points),
+                    ),
+                    const SizedBox(height: 12),
+                    _DetailRow(
+                      label: 'Started',
+                      value: session.startedAtUtc.toLocal().toString(),
+                    ),
+                    _DetailRow(
+                      label: 'Duration',
+                      value: _formatDuration(
+                        Duration(milliseconds: session.durationMs),
+                      ),
+                    ),
+                    _DetailRow(
+                      label: 'Frames',
+                      value: session.frameCount.toString(),
+                    ),
+                    _DetailRow(
+                      label: 'GPS samples',
+                      value: session.gpsSampleCount.toString(),
+                    ),
+                    _DetailRow(
+                      label: 'IMU samples',
+                      value: session.imuSampleCount.toString(),
+                    ),
+                    _DetailRow(
+                      label: 'Size',
+                      value: _formatBytes(session.totalBytes),
+                    ),
+                    _DetailRow(label: 'Video', value: session.videoPath),
+                    _DetailRow(label: 'Sidecar', value: session.sidecarPath),
+                    _DetailRow(label: 'GPX', value: session.gpxPath),
+                  ],
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }

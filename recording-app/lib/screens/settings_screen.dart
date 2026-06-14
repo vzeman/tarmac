@@ -14,125 +14,148 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        _SliderTile(
-          title: 'Frame spacing',
-          value: settings.frameSpacingM,
-          min: 1,
-          max: 20,
-          divisions: 19,
-          suffix: 'm',
-          onChanged: (value) =>
-              onChanged(settings.copyWith(frameSpacingM: value)),
-        ),
-        _IntSliderTile(
-          title: 'Max FPS',
-          value: settings.maxFps,
-          min: 1,
-          max: 30,
-          onChanged: (value) => onChanged(settings.copyWith(maxFps: value)),
-        ),
-        _IntSliderTile(
-          title: 'Min FPS',
-          value: settings.minFps,
-          min: 1,
-          max: 8,
-          onChanged: (value) => onChanged(settings.copyWith(minFps: value)),
-        ),
-        _SliderTile(
-          title: 'Pause speed',
-          value: settings.pauseSpeedKmh,
-          min: 0,
-          max: 15,
-          divisions: 30,
-          suffix: 'km/h',
-          onChanged: (value) =>
-              onChanged(settings.copyWith(pauseSpeedKmh: value)),
-        ),
-        _IntSliderTile(
-          title: 'Pause debounce',
-          value: settings.pauseDebounceS,
-          min: 1,
-          max: 15,
-          suffix: 's',
-          onChanged: (value) =>
-              onChanged(settings.copyWith(pauseDebounceS: value)),
-        ),
-        _DropdownTile<CaptureMode>(
-          title: 'Capture mode',
-          value: settings.captureMode,
-          values: CaptureMode.values,
-          labelFor: (value) => value.label,
-          onChanged: (value) =>
-              onChanged(settings.copyWith(captureMode: value)),
-        ),
-        _DropdownTile<CaptureResolution>(
-          title: 'Resolution',
-          value: settings.resolution,
-          values: CaptureResolution.values,
-          labelFor: (value) => value.label,
-          onChanged: (value) => onChanged(settings.copyWith(resolution: value)),
-        ),
-        _DropdownTile<CaptureCodec>(
-          title: 'Codec',
-          value: settings.codec,
-          values: CaptureCodec.values,
-          labelFor: (value) => value.label,
-          onChanged: (value) => onChanged(settings.copyWith(codec: value)),
-        ),
-        _SliderTile(
-          title: 'Max segment size',
-          value: settings.maxSegmentGb,
-          min: 1,
-          max: 50,
-          divisions: 49,
-          suffix: 'GB',
-          onChanged: (value) =>
-              onChanged(settings.copyWith(maxSegmentGb: value)),
-        ),
-        _DropdownTile<StorageLocation>(
-          title: 'Storage',
-          value: settings.storageLocation,
-          values: StorageLocation.values,
-          labelFor: (value) => value.label,
-          onChanged: (value) =>
-              onChanged(settings.copyWith(storageLocation: value)),
-        ),
-        SwitchListTile(
-          title: const Text('Keep screen on'),
-          value: settings.keepScreenOn,
-          onChanged: (value) =>
-              onChanged(settings.copyWith(keepScreenOn: value)),
-        ),
-        _DropdownTile<UnitSystem>(
-          title: 'Units',
-          value: settings.units,
-          values: UnitSystem.values,
-          labelFor: (value) => value.label,
-          onChanged: (value) => onChanged(settings.copyWith(units: value)),
-        ),
-        const SizedBox(height: 12),
-        const _TodoTile(
-          title: 'Adaptive distance capture',
-          milestone: 'SPEC M3',
-        ),
-        const _TodoTile(title: 'Stationary auto-pause', milestone: 'SPEC M3'),
-        const _TodoTile(
-          title: 'External USB/SAF storage',
-          milestone: 'SPEC M4',
-        ),
-        const _TodoTile(title: 'Segment auto-split', milestone: 'SPEC M4'),
-        const _TodoTile(
-          title: 'Background recording and thermal policy',
-          milestone: 'SPEC M7',
-        ),
-        const _TodoTile(
-          title: 'Tarmac sidecar ingestion',
-          milestone: 'SPEC M6',
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontalPadding = constraints.maxWidth >= 700 ? 24.0 : 12.0;
+        return SafeArea(
+          child: ListView(
+            padding: EdgeInsets.fromLTRB(
+              horizontalPadding,
+              12,
+              horizontalPadding,
+              20,
+            ),
+            children: [
+              _SliderTile(
+                title: 'Frame spacing',
+                value: settings.frameSpacingM,
+                min: 1,
+                max: 20,
+                divisions: 19,
+                suffix: 'm',
+                onChanged: (value) =>
+                    onChanged(settings.copyWith(frameSpacingM: value)),
+              ),
+              _IntSliderTile(
+                title: 'Max FPS',
+                value: settings.maxFps,
+                min: 1,
+                max: 30,
+                onChanged: (value) =>
+                    onChanged(settings.copyWith(maxFps: value)),
+              ),
+              _IntSliderTile(
+                title: 'Min FPS',
+                value: settings.minFps,
+                min: 1,
+                max: 8,
+                onChanged: (value) =>
+                    onChanged(settings.copyWith(minFps: value)),
+              ),
+              _SliderTile(
+                title: 'Pause speed',
+                value: settings.pauseSpeedKmh,
+                min: 0,
+                max: 15,
+                divisions: 30,
+                suffix: 'km/h',
+                onChanged: (value) =>
+                    onChanged(settings.copyWith(pauseSpeedKmh: value)),
+              ),
+              _IntSliderTile(
+                title: 'Pause debounce',
+                value: settings.pauseDebounceS,
+                min: 1,
+                max: 15,
+                suffix: 's',
+                onChanged: (value) =>
+                    onChanged(settings.copyWith(pauseDebounceS: value)),
+              ),
+              _DropdownTile<CaptureMode>(
+                title: 'Capture mode',
+                value: settings.captureMode,
+                values: CaptureMode.values,
+                labelFor: (value) => value.label,
+                onChanged: (value) =>
+                    onChanged(settings.copyWith(captureMode: value)),
+              ),
+              _DropdownTile<CaptureResolution>(
+                title: 'Resolution',
+                value: settings.resolution,
+                values: CaptureResolution.values,
+                labelFor: (value) => value.label,
+                onChanged: (value) =>
+                    onChanged(settings.copyWith(resolution: value)),
+              ),
+              _DropdownTile<CaptureCodec>(
+                title: 'Codec',
+                value: settings.codec,
+                values: CaptureCodec.values,
+                labelFor: (value) => value.label,
+                onChanged: (value) =>
+                    onChanged(settings.copyWith(codec: value)),
+              ),
+              _SliderTile(
+                title: 'Max segment size',
+                value: settings.maxSegmentGb,
+                min: 1,
+                max: 50,
+                divisions: 49,
+                suffix: 'GB',
+                onChanged: (value) =>
+                    onChanged(settings.copyWith(maxSegmentGb: value)),
+              ),
+              _DropdownTile<StorageLocation>(
+                title: 'Storage',
+                value: settings.storageLocation,
+                values: StorageLocation.values,
+                labelFor: (value) => value.label,
+                onChanged: (value) =>
+                    onChanged(settings.copyWith(storageLocation: value)),
+              ),
+              SwitchListTile(
+                title: const Text('Keep screen on'),
+                value: settings.keepScreenOn,
+                onChanged: (value) =>
+                    onChanged(settings.copyWith(keepScreenOn: value)),
+              ),
+              _DropdownTile<UnitSystem>(
+                title: 'Units',
+                value: settings.units,
+                values: UnitSystem.values,
+                labelFor: (value) => value.label,
+                onChanged: (value) =>
+                    onChanged(settings.copyWith(units: value)),
+              ),
+              const SizedBox(height: 12),
+              const _TodoTile(
+                title: 'Adaptive distance capture',
+                milestone: 'SPEC M3',
+              ),
+              const _TodoTile(
+                title: 'Stationary auto-pause',
+                milestone: 'SPEC M3',
+              ),
+              const _TodoTile(
+                title: 'External USB/SAF storage',
+                milestone: 'SPEC M4',
+              ),
+              const _TodoTile(
+                title: 'Segment auto-split',
+                milestone: 'SPEC M4',
+              ),
+              const _TodoTile(
+                title: 'Background recording and thermal policy',
+                milestone: 'SPEC M7',
+              ),
+              const _TodoTile(
+                title: 'Tarmac sidecar ingestion',
+                milestone: 'SPEC M6',
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

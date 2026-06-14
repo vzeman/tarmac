@@ -114,123 +114,359 @@ class _RecordScreenState extends State<RecordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return OrientationBuilder(
+      builder: (context, orientation) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isLandscape =
+                orientation == Orientation.landscape ||
+                constraints.maxWidth > constraints.maxHeight;
+            if (isLandscape) {
+              return _buildLandscapeRecord(context, constraints);
+            }
+            return _buildPortraitRecord(context);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildPortraitRecord(BuildContext context) {
     final theme = Theme.of(context);
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        _CameraPreviewPanel(controller: _controller.cameraController),
-        const SizedBox(height: 12),
-        if (_controller.warningMessage != null)
-          _Banner(
-            icon: Icons.info_outline,
-            color: theme.colorScheme.tertiaryContainer,
-            message: _controller.warningMessage!,
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+        children: [
+          _CameraPreviewPanel(controller: _controller.cameraController),
+          const SizedBox(height: 12),
+          ..._buildBanners(theme),
+          const SizedBox(height: 8),
+          _buildActionButtons(),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _metrics()
+                .map(
+                  (metric) => _MetricTile(
+                    icon: metric.icon,
+                    label: metric.label,
+                    value: metric.value,
+                    width: 164,
+                  ),
+                )
+                .toList(),
           ),
-        if (_controller.errorMessage != null)
-          _Banner(
-            icon: Icons.error_outline,
-            color: theme.colorScheme.errorContainer,
-            message: _controller.errorMessage!,
-          ),
-        const SizedBox(height: 8),
-        Row(
+          const SizedBox(height: 12),
+          SizedBox(height: 190, child: _LiveMap(points: _controller.track)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLandscapeRecord(
+    BuildContext context,
+    BoxConstraints constraints,
+  ) {
+    final theme = Theme.of(context);
+    final railWidth = (constraints.maxWidth * 0.34).clamp(286.0, 360.0);
+    final mapWidth = (constraints.maxWidth * 0.22).clamp(150.0, 220.0);
+    final mapHeight = (constraints.maxHeight * 0.3).clamp(86.0, 128.0);
+    final banners = _buildBanners(theme, compact: true);
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Row(
           children: [
             Expanded(
-              child: FilledButton.icon(
-                onPressed:
-                    _controller.isRecording ||
-                        _controller.isStopping ||
-                        _controller.initializingCamera
-                    ? null
-                    : _start,
-                icon: const Icon(Icons.fiber_manual_record),
-                label: const Text('Start'),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _CameraPreviewPanel(
+                    controller: _controller.cameraController,
+                    fill: true,
+                  ),
+                  if (banners.isNotEmpty)
+                    Positioned(
+                      left: 10,
+                      top: 10,
+                      right: 10,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: banners,
+                      ),
+                    ),
+                  Positioned(
+                    left: 10,
+                    bottom: 10,
+                    child: SizedBox(
+                      width: mapWidth,
+                      height: mapHeight,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface.withAlpha(225),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(2),
+                          child: _LiveMap(points: _controller.track),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _controller.isRecording && !_controller.isStopping
-                    ? _stop
-                    : null,
-                icon: const Icon(Icons.stop),
-                label: Text(_controller.isStopping ? 'Stopping' : 'Stop'),
+            const SizedBox(width: 8),
+            SizedBox(width: railWidth, child: _buildLandscapeRail(context)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLandscapeRail(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withAlpha(236),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compactHeight = constraints.maxHeight < 340;
+            return Column(
+              children: [
+                _buildActionButtons(compact: true),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, metricConstraints) {
+                      return FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.topCenter,
+                        child: SizedBox(
+                          width: metricConstraints.maxWidth,
+                          child: _MetricGrid(
+                            metrics: _metrics(),
+                            tileHeight: compactHeight ? 40 : 48,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionButtons({bool compact = false}) {
+    final buttonHeight = compact ? 42.0 : 48.0;
+    final canStart =
+        !_controller.isRecording &&
+        !_controller.isStopping &&
+        !_controller.initializingCamera;
+    final canStop = _controller.isRecording && !_controller.isStopping;
+
+    return SizedBox(
+      height: buttonHeight,
+      child: Row(
+        children: [
+          Expanded(
+            child: FilledButton.icon(
+              onPressed: canStart ? _start : null,
+              icon: const Icon(Icons.fiber_manual_record),
+              label: const Text('Start'),
+              style: FilledButton.styleFrom(
+                minimumSize: Size(0, buttonHeight),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
               ),
             ),
-          ],
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: canStop ? _stop : null,
+              icon: const Icon(Icons.stop),
+              label: Text(_controller.isStopping ? 'Stopping' : 'Stop'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: Size(0, buttonHeight),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildBanners(ThemeData theme, {bool compact = false}) {
+    return [
+      if (_controller.warningMessage != null)
+        _Banner(
+          icon: Icons.info_outline,
+          color: theme.colorScheme.tertiaryContainer,
+          message: _controller.warningMessage!,
+          compact: compact,
         ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _MetricTile(
-              icon: Icons.speed,
-              label: 'Speed',
-              value: _formatSpeed(_controller.speedMps, widget.settings.units),
-            ),
-            _MetricTile(
-              icon: Icons.satellite_alt,
-              label: 'GPS',
-              value: _gpsFixText(_controller.gpsAccuracyM),
-            ),
-            _MetricTile(
-              icon: Icons.timer_outlined,
-              label: 'Elapsed',
-              value: _formatDuration(_controller.elapsed),
-            ),
-            _MetricTile(
-              icon: Icons.image_outlined,
-              label: 'Frames',
-              value: _controller.estimatedFrameCount.toString(),
-            ),
-            _MetricTile(
-              icon: Icons.my_location,
-              label: 'GPS samples',
-              value: _controller.gpsSamples.toString(),
-            ),
-            _MetricTile(
-              icon: Icons.sensors,
-              label: 'IMU samples',
-              value: _controller.imuSamples.toString(),
-            ),
-            _MetricTile(
-              icon: Icons.storage,
-              label: 'Free',
-              value: _formatBytes(_freeBytes),
-            ),
-            _MetricTile(
-              icon: Icons.movie_creation_outlined,
-              label: 'Mode',
-              value: 'Continuous',
-            ),
-          ],
+      if (_controller.errorMessage != null)
+        _Banner(
+          icon: Icons.error_outline,
+          color: theme.colorScheme.errorContainer,
+          message: _controller.errorMessage!,
+          compact: compact,
         ),
-        const SizedBox(height: 12),
-        SizedBox(height: 190, child: _LiveMap(points: _controller.track)),
-      ],
+    ];
+  }
+
+  List<_MetricData> _metrics() {
+    return [
+      _MetricData(
+        icon: Icons.speed,
+        label: 'Speed',
+        value: _formatSpeed(_controller.speedMps, widget.settings.units),
+      ),
+      _MetricData(
+        icon: Icons.satellite_alt,
+        label: 'GPS fix',
+        value: _gpsFixText(_controller.gpsAccuracyM),
+      ),
+      _MetricData(
+        icon: Icons.timer_outlined,
+        label: 'Elapsed',
+        value: _formatDuration(_controller.elapsed),
+      ),
+      _MetricData(
+        icon: Icons.image_outlined,
+        label: 'Frames',
+        value: _controller.estimatedFrameCount.toString(),
+      ),
+      _MetricData(
+        icon: Icons.my_location,
+        label: 'GPS samples',
+        value: _controller.gpsSamples.toString(),
+      ),
+      _MetricData(
+        icon: Icons.sensors,
+        label: 'IMU samples',
+        value: _controller.imuSamples.toString(),
+      ),
+      _MetricData(
+        icon: Icons.storage,
+        label: 'Free',
+        value: _formatBytes(_freeBytes),
+      ),
+      const _MetricData(
+        icon: Icons.movie_creation_outlined,
+        label: 'Mode',
+        value: 'Continuous',
+      ),
+    ];
+  }
+}
+
+class _MetricData {
+  const _MetricData({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+}
+
+class _MetricGrid extends StatelessWidget {
+  const _MetricGrid({required this.metrics, required this.tileHeight});
+
+  final List<_MetricData> metrics;
+  final double tileHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    const spacing = 6.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 250 ? 2 : 1;
+        final tileWidth =
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: metrics
+              .map(
+                (metric) => _MetricTile(
+                  icon: metric.icon,
+                  label: metric.label,
+                  value: metric.value,
+                  width: tileWidth,
+                  height: tileHeight,
+                  compact: true,
+                ),
+              )
+              .toList(),
+        );
+      },
     );
   }
 }
 
 class _CameraPreviewPanel extends StatelessWidget {
-  const _CameraPreviewPanel({required this.controller});
+  const _CameraPreviewPanel({required this.controller, this.fill = false});
 
   final CameraController? controller;
+  final bool fill;
 
   @override
   Widget build(BuildContext context) {
     final active = controller;
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
-      child: AspectRatio(
-        aspectRatio: 16 / 9,
-        child: Container(
-          color: Colors.black,
-          alignment: Alignment.center,
-          child: active != null && active.value.isInitialized
-              ? CameraPreview(active)
-              : const Icon(Icons.videocam_off, color: Colors.white54, size: 48),
+      child: Container(
+        color: Colors.black,
+        alignment: Alignment.center,
+        child: active != null && active.value.isInitialized
+            ? _CameraPreviewContent(controller: active, fill: fill)
+            : const Icon(Icons.videocam_off, color: Colors.white54, size: 48),
+      ),
+    );
+  }
+}
+
+class _CameraPreviewContent extends StatelessWidget {
+  const _CameraPreviewContent({required this.controller, required this.fill});
+
+  final CameraController controller;
+  final bool fill;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!fill) {
+      return AspectRatio(aspectRatio: 16 / 9, child: CameraPreview(controller));
+    }
+
+    final aspectRatio = controller.value.aspectRatio;
+    final previewWidth = aspectRatio >= 1 ? aspectRatio : 1.0;
+    final previewHeight = aspectRatio >= 1 ? 1.0 : 1 / aspectRatio;
+    return SizedBox.expand(
+      child: FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          width: previewWidth,
+          height: previewHeight,
+          child: CameraPreview(controller),
         ),
       ),
     );
@@ -295,36 +531,55 @@ class _MetricTile extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
+    this.width,
+    this.height,
+    this.compact = false,
   });
 
   final IconData icon;
   final String label;
   final String value;
+  final double? width;
+  final double? height;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return SizedBox(
-      width: 164,
+      width: width,
+      height: height,
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: theme.colorScheme.outlineVariant),
         ),
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 8 : 10,
+            vertical: compact ? 6 : 10,
+          ),
           child: Row(
             children: [
-              Icon(icon, size: 20),
-              const SizedBox(width: 8),
+              Icon(icon, size: compact ? 18 : 20),
+              SizedBox(width: compact ? 6 : 8),
               Expanded(
                 child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(label, style: theme.textTheme.labelSmall),
+                    Text(
+                      label,
+                      style: theme.textTheme.labelSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     Text(
                       value,
-                      style: theme.textTheme.titleSmall,
+                      style: compact
+                          ? theme.textTheme.bodySmall
+                          : theme.textTheme.titleSmall,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
@@ -343,11 +598,13 @@ class _Banner extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.message,
+    this.compact = false,
   });
 
   final IconData icon;
   final Color color;
   final String message;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -359,12 +616,18 @@ class _Banner extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: EdgeInsets.all(compact ? 8 : 10),
           child: Row(
             children: [
-              Icon(icon),
-              const SizedBox(width: 8),
-              Expanded(child: Text(message)),
+              Icon(icon, size: compact ? 20 : 24),
+              SizedBox(width: compact ? 6 : 8),
+              Expanded(
+                child: Text(
+                  message,
+                  maxLines: compact ? 2 : null,
+                  overflow: compact ? TextOverflow.ellipsis : null,
+                ),
+              ),
             ],
           ),
         ),
