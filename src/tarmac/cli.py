@@ -109,6 +109,53 @@ def download_crackairport_cmd(
     )
 
 
+@download_app.command("crackforest")
+def download_crackforest_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/crackforest"),
+        "--output-dir",
+        "-o",
+        help="Directory for normalized CrackForest files.",
+    ),
+) -> None:
+    """Download CrackForest/CFD from GitHub and convert masks to binary PNG."""
+    from tarmac.datasets.crackforest import download_crackforest
+
+    result = download_crackforest(output_dir)
+    console.print(
+        f"CrackForest ready: pairs={result.pair_count}, images={result.image_count}, "
+        f"masks={result.mask_count}, pairs_index={result.pairs_path}"
+    )
+
+
+@download_app.command("rdd2022")
+def download_rdd2022_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/rdd2022"),
+        "--output-dir",
+        "-o",
+        help="Directory for normalized RDD2022 files.",
+    ),
+    country: str = typer.Option("Czech", "--country", help="Country subset to download."),
+    max_download_mb: float = typer.Option(
+        1024.0,
+        "--max-download-mb",
+        help="Skip automatic download above this upstream archive size.",
+    ),
+) -> None:
+    """Download one RDD2022 country subset and normalize annotated train data."""
+    from tarmac.datasets.rdd2022 import download_rdd2022
+
+    result = download_rdd2022(output_dir=output_dir, country=country, max_download_mb=max_download_mb)
+    if result.downloaded:
+        console.print(
+            f"RDD2022 ready: country={result.country}, images={result.image_count}, "
+            f"annotations={result.annotation_count}, classes={result.class_counts}"
+        )
+    else:
+        console.print(f"RDD2022 skipped: country={result.country}; instructions={result.output_dir / 'MANUAL_DOWNLOAD.md'}")
+
+
 @download_app.command("codebrim")
 def download_codebrim_cmd(
     output_dir: Path = typer.Option(
@@ -241,6 +288,53 @@ def yolo_prep_seg(
     console.print(
         f"YOLO seg ready: pairs={result.pair_count}, labels={result.label_count}, "
         f"empty_masks={result.empty_mask_count}, data={result.data_yaml}"
+    )
+
+
+@app.command("yolo-prep-seg-expanded")
+def yolo_prep_seg_expanded(
+    crackairport_dir: Path = typer.Option(
+        Path("data/raw/crackairport"),
+        help="CrackAirport raw directory.",
+    ),
+    crackforest_dir: Path = typer.Option(
+        Path("data/raw/crackforest"),
+        help="CrackForest raw directory.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("data/processed/yolo_seg_expanded"),
+        help="Expanded YOLO segmentation output directory.",
+    ),
+    keep_empty: bool = typer.Option(True, help="Keep empty masks as background-only YOLO labels."),
+) -> None:
+    """Build expanded CrackAirport + CrackForest YOLO segmentation data."""
+    from tarmac.yolo.prepare_seg import prepare_yolo_seg_expanded
+
+    result = prepare_yolo_seg_expanded(
+        crackairport_dir=crackairport_dir,
+        crackforest_dir=crackforest_dir,
+        output_dir=output_dir,
+        keep_empty=keep_empty,
+    )
+    console.print(
+        f"Expanded YOLO seg ready: pairs={result.pair_count}, train={result.split_counts['train']}, "
+        f"val={result.split_counts['val']}, test={result.split_counts['test']}, "
+        f"sources={result.source_counts}, source_splits={result.split_source_counts}, data={result.data_yaml}"
+    )
+
+
+@app.command("yolo-prep-rdd")
+def yolo_prep_rdd(
+    raw_dir: Path = typer.Option(Path("data/raw/rdd2022/Czech"), help="Normalized RDD2022 country directory."),
+    output_dir: Path = typer.Option(Path("data/processed/yolo_rdd"), help="YOLO detection output directory."),
+) -> None:
+    """Convert normalized RDD2022 Pascal VOC annotations to YOLO detection format."""
+    from tarmac.yolo.prepare_rdd import prepare_yolo_rdd
+
+    result = prepare_yolo_rdd(raw_dir=raw_dir, output_dir=output_dir)
+    console.print(
+        f"YOLO RDD ready: images={result.image_count}, labels={result.label_count}, "
+        f"splits={result.split_counts}, classes={result.class_counts}, data={result.data_yaml}"
     )
 
 
