@@ -205,17 +205,18 @@ def reference_customdata(df: pd.DataFrame) -> list[list[Any]]:
 
 
 def folder_customdata(df: pd.DataFrame) -> list[list[Any]]:
+    file_urls = df["source_path"].astype(str).map(_absolute_file_url)
     return np.stack(
         [
             np.full(len(df), "folder", dtype=object),
             df["source_path"].astype(str).to_numpy(),
-            df["thumbnail_data_url"].astype(str).to_numpy(),
+            file_urls.to_numpy(),
             df["surface_type"].astype(str).to_numpy(),
             df["predicted_quality"].astype(str).to_numpy(),
             df["confidence"].map(lambda value: f"{float(value):.3f}").to_numpy(),
             df["filename"].astype(str).to_numpy(),
             np.full(len(df), "", dtype=object),
-            df["source_path"].astype(str).map(_absolute_file_url).to_numpy(),
+            file_urls.to_numpy(),
         ],
         axis=1,
     ).tolist()
@@ -249,6 +250,7 @@ def write_clickable_html(fig: go.Figure, path: Path) -> None:
 def dialog_css() -> str:
     return """<style>
 body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #17202a; }
+.tarmac-image-link { cursor: zoom-in; }
 .img-dialog-backdrop { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.58); z-index: 10000; padding: 24px; }
 .img-dialog-backdrop.open { display: flex; }
 .img-dialog { width: min(760px, 96vw); max-height: 92vh; overflow: auto; background: #fff; border-radius: 8px; box-shadow: 0 18px 60px rgba(0,0,0,0.35); }
@@ -287,6 +289,22 @@ def dialog_html(*, include_style: bool = True) -> str:
 
 
 def click_handler_js() -> str:
+    return image_dialog_js(plot_id="{plot_id}")
+
+
+def image_dialog_js(*, plot_id: str | None = None) -> str:
+    plot_hook = ""
+    if plot_id is not None:
+        plot_hook = f"""
+var plot = document.getElementById(\"{plot_id}\");
+if (plot && plot.on) {{
+  plot.on(\"plotly_click\", function(eventData) {{
+    if (eventData && eventData.points && eventData.points.length) {{
+      tarmacOpenImageDialog(eventData.points[0].customdata);
+    }}
+  }});
+}}
+"""
     return r"""
 function tarmacDialogText(id, value) {
   var element = document.getElementById(id);
@@ -297,15 +315,17 @@ function tarmacOpenImageDialog(data) {
   var dialog = document.getElementById("img-dialog");
   var image = document.getElementById("img-dialog-image");
   if (!dialog || !image) return;
-  var kind = data[0] || "";
-  var path = data[1] || "";
-  var src = data[2] || "";
-  var surface = data[3] || "";
-  var quality = data[4] || "";
-  var confidence = data[5] || "";
-  var filename = data[6] || path;
-  var displayPath = data[8] || src || path;
-  image.src = src || displayPath;
+  var isArray = Array.isArray(data);
+  var kind = isArray ? (data[0] || "") : (data.kind || "");
+  var path = isArray ? (data[1] || "") : (data.path || "");
+  var src = isArray ? (data[2] || "") : (data.src || data.fileUrl || "");
+  var surface = isArray ? (data[3] || "") : (data.surface || "");
+  var quality = isArray ? (data[4] || "") : (data.quality || "");
+  var confidence = isArray ? (data[5] || "") : (data.confidence || "");
+  var filename = isArray ? (data[6] || path) : (data.filename || path);
+  var fileUrl = isArray ? (data[8] || "") : (data.fileUrl || "");
+  var displayPath = fileUrl || src || path;
+  image.src = src || fileUrl || displayPath;
   image.alt = filename;
   tarmacDialogText("img-dialog-title", filename);
   tarmacDialogText("img-dialog-filename", filename);
@@ -322,25 +342,40 @@ function tarmacCloseImageDialog() {
   if (image) image.removeAttribute("src");
 }
 document.addEventListener("click", function(event) {
-  if (event.target && event.target.id === "img-dialog") tarmacCloseImageDialog();
-  if (event.target && event.target.id === "img-dialog-close") tarmacCloseImageDialog();
+  var target = event.target;
+  var link = target && target.closest ? target.closest(".tarmac-image-link") : null;
+  if (link) {
+    event.preventDefault();
+    tarmacOpenImageDialog({
+      kind: link.getAttribute("data-kind") || "",
+      src: link.getAttribute("data-src") || link.href,
+      fileUrl: link.href,
+      path: link.getAttribute("data-path") || link.href,
+      filename: link.getAttribute("data-filename") || link.textContent || link.href,
+      quality: link.getAttribute("data-quality") || "",
+      surface: link.getAttribute("data-surface") || "",
+      confidence: link.getAttribute("data-confidence") || ""
+    });
+  }
+  if (target && target.id === "img-dialog") tarmacCloseImageDialog();
+  if (target && target.id === "img-dialog-close") tarmacCloseImageDialog();
 });
 document.addEventListener("keydown", function(event) {
   if (event.key === "Escape") tarmacCloseImageDialog();
 });
-var plot = document.getElementById("{plot_id}");
-if (plot && plot.on) {
-  plot.on("plotly_click", function(eventData) {
-    if (eventData && eventData.points && eventData.points.length) {
-      tarmacOpenImageDialog(eventData.points[0].customdata);
-    }
-  });
-}
-"""
+""" + plot_hook
+
+
+def absolute_file_url(value: str, *, base_dir: Path | None = None) -> str:
+    if not value:
+        return ""
+    if value.startswith("file://") or value.startswith("data:"):
+        return value
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = (base_dir or Path.cwd()) / path
+    return path.resolve().as_uri()
 
 
 def _absolute_file_url(value: str) -> str:
-    path = Path(value).expanduser()
-    if not path.is_absolute():
-        path = Path.cwd() / path
-    return path.resolve().as_uri()
+    return absolute_file_url(value)

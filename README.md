@@ -129,7 +129,7 @@ Video requires `ffmpeg` (`brew install ffmpeg`). Each run writes `results.parque
 uv run tarmac report runs/my-video      # -> runs/my-video/report.html
 ```
 
-Headline stats, a quality timeline, cracked-section overlays when a crack head is present, crack geometry overlays when segmentation ran, a UMAP scatter of the run inside the reference space, a GPS map (when EXIF GPS exists), and a thumbnail gallery.
+Headline stats, a quality timeline, cracked-section overlays when a crack head is present, crack geometry overlays when segmentation ran, a UMAP scatter of the run inside the reference space, a GPS map (when EXIF GPS exists), and a thumbnail gallery. Report filenames and thumbnails link to their absolute local `file://` image path and open an in-page image dialog with ESC, backdrop, and close-button dismissal.
 
 ### Run condition assessment
 
@@ -149,9 +149,9 @@ UV_CACHE_DIR=.uv-cache uv run tarmac survey path/to/video.mov --fps 1 --device c
 UV_CACHE_DIR=.uv-cache uv run tarmac survey path/to/video.mov --clip-seconds 60 --fps 1 --device cpu --out runs/survey_clip60
 ```
 
-The route is approximate. iPhone videos may contain only a single QuickTime start GPS point instead of a continuous GPS track; in that case `tarmac survey` attempts to demux and validate the high-rate Core Media metadata stream and dead-reckon from the start point. If the private Apple metadata fields cannot be validated as physically plausible accelerometer/gyro samples, the command falls back to a clearly marked nominal straight route so the survey still completes. Every output repeats the caveat: **Route is IMU-estimated (approximate, drifts) — no continuous GPS in source.**
+The route is approximate. iPhone videos may contain only a single QuickTime start GPS point instead of a continuous GPS track; in that case `tarmac survey` attempts to demux and validate the high-rate Core Media metadata stream and dead-reckon from the start point. If the private Apple metadata fields cannot be validated as physically plausible accelerometer/gyro samples, the command falls back to a clearly marked nominal straight route so the survey still completes. Every output repeats the caveat: **Route is IMU-estimated (approximate, drifts) — no continuous GPS in source.** Speed is labeled as estimated from IMU and unreliable; reports warn when the mean speed is implausibly low for a moving survey.
 
-Problem rule: a sampled frame is saved when a crack is detected, a gated non-crack structural defect is detected, or the quality grade is at least `--quality-threshold` (default `4`; higher is worse). Outputs are written under the run directory:
+Problem rule: a sampled frame is saved when a crack is confirmed, a gated non-crack structural defect is detected, or the quality grade is at least `--quality-threshold` (default `4`; higher is worse). Crack confirmation is stricter than the tile classifier alone: at least one road tile must meet `--crack-prob` (default `0.6`), and the DINOv3 dense segmentation head (`models/crack_seg_head.pt` when present) must find a connected mask with area at least `--min-crack-area` (default `0.3%`) and longest connected component at least `--min-crack-length-px` (default `64`). This filters paving-stone joints, tar seams, markings, blur, and small dots that can trip the tile classifier. Outputs are written under the run directory:
 
 | Output | Contents |
 | --- | --- |
@@ -159,6 +159,7 @@ Problem rule: a sampled frame is saved when a crack is detected, a gated non-cra
 | `track.geojson` | Route line plus problem point features |
 | `samples.parquet` | Lightweight record for every sampled frame, with quality, surface type, speed, flags, and issue list |
 | `problems.parquet` | Subset of sampled frames that triggered the problem rule |
+| `problems_confirmed.parquet` | Pruned/confirmed problem set when an existing survey run is rechecked with `tarmac survey-confirm` |
 | `problem_images/` | Full JPEG and thumbnail only for problem frames |
 | `map.html` | Leaflet map with OSM tiles, quality-colored route segments, start marker, and problem popups |
 | `problems_table.html` | Sortable problem table with thumbnails and links |

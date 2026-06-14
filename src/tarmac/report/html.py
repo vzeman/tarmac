@@ -14,6 +14,7 @@ import umap
 
 from tarmac.defect import DEFECT_LABELS
 from tarmac.inference.analyze import image_to_base64, load_active_artifacts
+from tarmac.report.umap_html import absolute_file_url, dialog_css, dialog_html, image_dialog_js
 
 QUALITY_COLORS = {
     1: "#1a9850",
@@ -28,6 +29,9 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     run_dir = run_dir.expanduser().resolve()
     results_path = run_dir / "results.parquet"
     summary_path = run_dir / "summary.json"
+    crack_measurements_path = run_dir / "crack_measurements.parquet"
+    if not results_path.exists() and crack_measurements_path.exists():
+        return build_crack_measurement_report(run_dir=run_dir, output=output)
     if not results_path.exists():
         raise FileNotFoundError(f"Missing analysis results: {results_path}")
     if not summary_path.exists():
@@ -46,11 +50,11 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     run_xy = reducer.transform(run_embeddings)
 
     timeline = quality_timeline(df)
-    condition_panel = condition_assessment_panel(run_dir)
+    condition_panel = condition_assessment_panel(run_dir, df)
     crack_panel = cracked_sections_panel(run_dir, df)
-    structural_panel = structural_defects_panel(df)
+    structural_panel = structural_defects_panel(run_dir, df)
     crack_geometry = crack_geometry_panel(run_dir, df)
-    scatter = umap_scatter(ref_xy, ref_df, run_xy, df)
+    scatter = umap_scatter(ref_xy, ref_df, run_xy, df, run_dir=run_dir)
     gps = gps_scatter(df) if {"latitude", "longitude"}.issubset(df.columns) else ""
     gallery = gallery_html(run_dir, df)
     stats = headline_stats(summary)
@@ -83,6 +87,7 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     .crack-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }}
     .crack-card {{ background: white; border: 1px solid #dde2e7; border-radius: 8px; overflow: hidden; }}
     .crack-image {{ position: relative; line-height: 0; }}
+    .crack-image .tarmac-image-link {{ display: block; position: relative; }}
     .crack-image img {{ width: 100%; display: block; }}
     .crack-tile {{ position: absolute; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.75); }}
     .crack-tile.hot {{ background: rgba(210, 36, 36, 0.45); border-color: rgba(210, 36, 36, 0.9); }}
@@ -91,7 +96,9 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     .measure-table th, .measure-table td {{ border-bottom: 1px solid #dde2e7; padding: 8px; text-align: left; }}
     .measure-table th {{ background: #f1f4f7; }}
     .defect-tag {{ display: inline-block; margin: 2px 4px 2px 0; padding: 2px 8px; border-radius: 999px; background: #e8eef5; font-weight: 700; font-size: 12px; }}
+    .file-link {{ font-weight: 700; overflow-wrap: anywhere; }}
   </style>
+  {dialog_css()}
 </head>
 <body>
   <header>
@@ -112,11 +119,111 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     <h2>Per-frame Gallery</h2>
     <div class="gallery">{gallery}</div>
   </main>
+  {dialog_html(include_style=False)}
+  <script>{image_dialog_js(plot_id="umap-scatter")}</script>
 </body>
 </html>
 """
     output = output or (run_dir / "report.html")
     output.write_text(html)
+    return output
+
+
+def build_crack_measurement_report(run_dir: Path, output: Path | None = None) -> Path:
+    run_dir = run_dir.expanduser().resolve()
+    measurements_path = run_dir / "crack_measurements.parquet"
+    if not measurements_path.exists():
+        raise FileNotFoundError(f"Missing crack measurements: {measurements_path}")
+    df = pd.read_parquet(measurements_path)
+    mean_area = float(df["crack_area_pct"].astype(float).mean()) if len(df) else 0.0
+    mean_length = float(df["total_length_px"].astype(float).mean()) if len(df) else 0.0
+    segmenter = str(df["segmenter"].mode().iloc[0]) if len(df) and "segmenter" in df else "unknown"
+    rows: list[str] = []
+    cards: list[str] = []
+    for row in df.itertuples():
+        source = _resolve_report_path(run_dir, str(getattr(row, "image_path", "")))
+        overlay = _resolve_report_path(run_dir, str(getattr(row, "overlay_path", "")))
+        filename = str(getattr(row, "filename", source.name))
+        overlay_link = _filename_link(run_dir, str(overlay), overlay.name, kind="crack-overlay")
+        rows.append(
+            "<tr>"
+            f"<td>{_filename_link(run_dir, str(source), filename, kind='crack-source')}</td>"
+            f"<td>{overlay_link}</td>"
+            f"<td>{html_lib.escape(str(getattr(row, 'segmenter', '')))}</td>"
+            f"<td>{float(getattr(row, 'crack_area_pct', 0.0) or 0.0):.4f}%</td>"
+            f"<td>{int(getattr(row, 'total_length_px', 0) or 0)}</td>"
+            f"<td>{float(getattr(row, 'mean_width_px', 0.0) or 0.0):.2f}</td>"
+            f"<td>{float(getattr(row, 'crack_area_mm2', 0.0) or 0.0):.1f}</td>"
+            f"<td>{float(getattr(row, 'total_length_mm', 0.0) or 0.0):.1f}</td>"
+            "</tr>"
+        )
+        if overlay.exists():
+            src = image_to_base64(overlay)
+            image = (
+                f'<img src="data:image/png;base64,{src}" '
+                f'alt="{html_lib.escape(filename, quote=True)} overlay">'
+            )
+            cards.append(
+                f"""<article class="card">
+  {_image_link(overlay, overlay.name, image, kind="crack-overlay")}
+  <div><b>{_filename_link(run_dir, str(source), filename, kind="crack-source")}</b><br>{html_lib.escape(str(getattr(row, "segmenter", "")))}<br>{float(getattr(row, "crack_area_pct", 0.0) or 0.0):.4f}% area · {int(getattr(row, "total_length_px", 0) or 0)} px length · {float(getattr(row, "mean_width_px", 0.0) or 0.0):.2f} px mean width</div>
+</article>"""
+            )
+    table = "\n".join(rows)
+    grid = "\n".join(cards)
+    html_text = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tarmac Crack Measurement Report - {html_lib.escape(run_dir.name)}</title>
+  <style>
+    body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #17202a; background: #f6f7f9; }}
+    header {{ padding: 28px 32px; background: #17202a; color: white; }}
+    main {{ max-width: 1180px; margin: 0 auto; padding: 24px; }}
+    .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 20px 0; }}
+    .stat, .panel, .card {{ background: white; border: 1px solid #dde2e7; border-radius: 8px; }}
+    .stat {{ padding: 14px; }}
+    .stat b {{ display: block; font-size: 24px; }}
+    .panel {{ padding: 12px; margin: 16px 0; overflow-x: auto; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+    th, td {{ border-bottom: 1px solid #dde2e7; padding: 8px; text-align: left; vertical-align: top; }}
+    th {{ background: #f1f4f7; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }}
+    .card {{ overflow: hidden; }}
+    .card img {{ width: 100%; display: block; }}
+    .card div {{ padding: 10px; font-size: 13px; line-height: 1.35; }}
+    .file-link {{ font-weight: 700; overflow-wrap: anywhere; }}
+  </style>
+  {dialog_css()}
+</head>
+<body>
+  <header>
+    <h1>Tarmac Crack Measurement Report</h1>
+    <div>{html_lib.escape(str(measurements_path))}</div>
+  </header>
+  <main>
+    <section class="stats">
+      <div class="stat"><span>Images</span><b>{len(df)}</b></div>
+      <div class="stat"><span>Segmenter</span><b>{html_lib.escape(segmenter)}</b></div>
+      <div class="stat"><span>Mean crack area</span><b>{mean_area:.3f}%</b></div>
+      <div class="stat"><span>Mean length</span><b>{mean_length:.0f} px</b></div>
+    </section>
+    <div class="panel">
+      <table>
+        <thead><tr><th>Image</th><th>Overlay</th><th>Segmenter</th><th>Area</th><th>Length px</th><th>Mean width px</th><th>Area mm2</th><th>Length mm</th></tr></thead>
+        <tbody>{table}</tbody>
+      </table>
+    </div>
+    <div class="grid">{grid}</div>
+  </main>
+  {dialog_html(include_style=False)}
+  <script>{image_dialog_js(plot_id=None)}</script>
+</body>
+</html>
+"""
+    output = output or (run_dir / "report.html")
+    output.write_text(html_text, encoding="utf-8")
     return output
 
 
@@ -143,7 +250,97 @@ def headline_stats(summary: dict[str, Any]) -> str:
 """
 
 
-def condition_assessment_panel(run_dir: Path) -> str:
+def _resolve_report_path(run_dir: Path, value: str) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = run_dir / path
+    return path.resolve()
+
+
+def _filename_link(
+    run_dir: Path,
+    file_path: str,
+    filename: str,
+    *,
+    kind: str = "image",
+    quality: str = "",
+    surface: str = "",
+    confidence: str = "",
+) -> str:
+    if not file_path:
+        return html_lib.escape(filename)
+    path = _resolve_report_path(run_dir, file_path)
+    return _image_link(
+        path,
+        filename,
+        html_lib.escape(filename),
+        kind=kind,
+        quality=quality,
+        surface=surface,
+        confidence=confidence,
+        css_class="file-link",
+    )
+
+
+def _image_link(
+    file_path: Path,
+    filename: str,
+    inner_html: str,
+    *,
+    kind: str = "image",
+    quality: str = "",
+    surface: str = "",
+    confidence: str = "",
+    css_class: str = "",
+) -> str:
+    file_url = absolute_file_url(str(file_path))
+    classes = " ".join(part for part in ["tarmac-image-link", css_class] if part)
+    attrs = {
+        "class": classes,
+        "href": file_url,
+        "data-kind": kind,
+        "data-src": file_url,
+        "data-path": str(file_path),
+        "data-filename": filename,
+        "data-quality": quality,
+        "data-surface": surface,
+        "data-confidence": confidence,
+    }
+    attr_text = " ".join(
+        f'{name}="{html_lib.escape(str(value), quote=True)}"' for name, value in attrs.items()
+    )
+    return f"<a {attr_text}>{inner_html}</a>"
+
+
+def _run_customdata(run_df: pd.DataFrame, *, run_dir: Path | None) -> list[list[Any]]:
+    base = run_dir or Path.cwd()
+    records: list[list[Any]] = []
+    for row in run_df.itertuples():
+        source = _resolve_report_path(base, str(getattr(row, "source_path", "")))
+        file_url = absolute_file_url(str(source))
+        quality = getattr(row, "predicted_quality", "")
+        confidence = getattr(row, "confidence", "")
+        try:
+            confidence_text = f"{float(confidence):.3f}"
+        except (TypeError, ValueError):
+            confidence_text = ""
+        records.append(
+            [
+                "folder",
+                str(source),
+                file_url,
+                str(getattr(row, "surface_type", "")),
+                "" if pd.isna(quality) else str(quality),
+                confidence_text,
+                str(getattr(row, "filename", source.name)),
+                "",
+                file_url,
+            ]
+        )
+    return records
+
+
+def condition_assessment_panel(run_dir: Path, df: pd.DataFrame) -> str:
     assessment_path = run_dir / "assessment.parquet"
     if not assessment_path.exists():
         return ""
@@ -156,16 +353,23 @@ def condition_assessment_panel(run_dir: Path) -> str:
         for priority in ["none", "monitor", "plan_repair", "urgent"]
     )
     mean_grade = float(assessment["overall_condition_grade"].astype(float).mean())
+    source_by_frame = {
+        int(getattr(row, "frame_index", index)): str(getattr(row, "source_path", ""))
+        for index, row in enumerate(df.itertuples())
+    }
     rows: list[str] = []
     for row in assessment.itertuples():
         priority = str(getattr(row, "repair_priority", "none"))
         priority_class = "priority-" + priority.replace("_", "-")
         defects = str(getattr(row, "key_defects", "") or "none")
         rationale = html_lib.escape(str(getattr(row, "rationale", "")))
+        frame_index = int(getattr(row, "frame_index", 0))
+        filename = str(getattr(row, "filename", ""))
+        source_path = source_by_frame.get(frame_index, "")
         rows.append(
             "<tr>"
-            f"<td>{int(getattr(row, 'frame_index', 0))}</td>"
-            f"<td>{html_lib.escape(str(getattr(row, 'filename', '')))}</td>"
+            f"<td>{frame_index}</td>"
+            f"<td>{_filename_link(run_dir, source_path, filename)}</td>"
             f"<td>{int(getattr(row, 'overall_condition_grade', 0))}</td>"
             f"<td>{html_lib.escape(str(getattr(row, 'pci_proxy_descriptor', '')))}</td>"
             f'<td><span class="priority-badge {priority_class}">{html_lib.escape(priority)}</span></td>'
@@ -244,7 +448,7 @@ def crack_timeline(df: pd.DataFrame) -> str:
     return pio.to_html(fig, include_plotlyjs=False, full_html=False)
 
 
-def structural_defects_panel(df: pd.DataFrame) -> str:
+def structural_defects_panel(run_dir: Path, df: pd.DataFrame) -> str:
     if "structural_defects" not in df.columns:
         return ""
     rows: list[str] = []
@@ -260,8 +464,10 @@ def structural_defects_panel(df: pd.DataFrame) -> str:
             value = getattr(row, f"defect_{label}_ratio", None)
             if value is not None and not pd.isna(value):
                 ratios.append(f"{label}: {float(value):.2f}")
+        filename = str(getattr(row, "filename", ""))
+        source_path = str(getattr(row, "source_path", ""))
         rows.append(
-            f"<tr><td>{row.frame_index}</td><td>{row.filename}</td><td>{tags}</td>"
+            f"<tr><td>{row.frame_index}</td><td>{_filename_link(run_dir, source_path, filename)}</td><td>{tags}</td>"
             f"<td>{', '.join(ratios) or 'n/a'}</td></tr>"
         )
     table = (
@@ -299,10 +505,16 @@ def crack_overlay_gallery(run_dir: Path, df: pd.DataFrame) -> str:
         overlays = "\n".join(_tile_overlay(tile) for tile in tiles)
         src = image_to_base64(thumb)
         ratio = float(getattr(row, "crack_ratio", 0.0) or 0.0)
+        source_path = _resolve_report_path(run_dir, str(getattr(row, "source_path", "")))
+        filename = str(getattr(row, "filename", ""))
+        image = (
+            f'<img src="data:image/jpeg;base64,{src}" alt="{html_lib.escape(filename, quote=True)}">'
+            f"{overlays}"
+        )
         cells.append(
             f"""<article class="crack-card">
-  <div class="crack-image"><img src="data:image/jpeg;base64,{src}" alt="{row.filename}">{overlays}</div>
-  <div class="crack-meta"><b>{ratio:.2f}</b> crack ratio<br>{row.filename}</div>
+  <div class="crack-image">{_image_link(source_path, filename, image, kind="crack-thumbnail")}</div>
+  <div class="crack-meta"><b>{ratio:.2f}</b> crack ratio<br>{_filename_link(run_dir, str(source_path), filename)}</div>
 </article>"""
         )
     return "\n".join(cells)
@@ -356,16 +568,23 @@ def crack_geometry_panel(run_dir: Path, df: pd.DataFrame) -> str:
         area_pct = float(getattr(row, "crack_area_pct", 0.0) or 0.0)
         length_px = int(getattr(row, "crack_length_px", 0) or 0)
         mean_width_px = float(getattr(row, "crack_mean_width_px", 0.0) or 0.0)
+        source_path = str(getattr(row, "source_path", ""))
+        filename = str(getattr(row, "filename", ""))
         rows.append(
-            f"<tr><td>{row.filename}</td><td>{area_pct:.4f}%</td>"
+            f"<tr><td>{_filename_link(run_dir, source_path, filename)}</td><td>{area_pct:.4f}%</td>"
             f"<td>{length_px}</td><td>{mean_width_px:.2f}</td></tr>"
         )
         if overlay is not None and overlay.exists():
             src = image_to_base64(overlay)
+            overlay_name = overlay.name
+            image = (
+                f'<img src="data:image/png;base64,{src}" '
+                f'alt="{html_lib.escape(filename, quote=True)} crack geometry">'
+            )
             cards.append(
                 f"""<article class="crack-card">
-  <img src="data:image/png;base64,{src}" alt="{row.filename} crack geometry">
-  <div class="crack-meta"><b>{area_pct:.4f}%</b> area<br>{length_px} px length<br>{row.filename}</div>
+  {_image_link(overlay, overlay_name, image, kind="crack-overlay")}
+  <div class="crack-meta"><b>{area_pct:.4f}%</b> area<br>{length_px} px length<br>{_filename_link(run_dir, source_path, filename)}</div>
 </article>"""
             )
     table = (
@@ -386,6 +605,7 @@ def umap_scatter(
     ref_df: pd.DataFrame,
     run_xy: np.ndarray,
     run_df: pd.DataFrame,
+    run_dir: Path | None = None,
 ) -> str:
     fig = go.Figure()
     fig.add_trace(
@@ -414,12 +634,13 @@ def umap_scatter(
                 f"{row.filename}<br>quality={row.predicted_quality}<br>type={row.surface_type}<br>confidence={row.confidence:.3f}"
                 for row in run_df.itertuples()
             ],
+            customdata=_run_customdata(run_df, run_dir=run_dir),
             hovertemplate="%{text}<extra></extra>",
             name="analyzed",
         )
     )
     fig.update_layout(margin={"l": 20, "r": 20, "t": 20, "b": 20}, height=520)
-    return pio.to_html(fig, include_plotlyjs=False, full_html=False)
+    return pio.to_html(fig, include_plotlyjs=False, full_html=False, div_id="umap-scatter")
 
 
 def gps_scatter(df: pd.DataFrame) -> str:
@@ -455,10 +676,13 @@ def gallery_html(run_dir: Path, df: pd.DataFrame) -> str:
         q = int(row.predicted_quality) if not pd.isna(row.predicted_quality) else 0
         color = QUALITY_COLORS.get(q, "#d7dce1")
         src = image_to_base64(thumb)
+        filename = str(getattr(row, "filename", ""))
+        source_path = _resolve_report_path(run_dir, str(getattr(row, "source_path", "")))
+        image = f'<img src="data:image/jpeg;base64,{src}" alt="{html_lib.escape(filename, quote=True)}">'
         cells.append(
             f"""<article class="thumb">
-  <img src="data:image/jpeg;base64,{src}" alt="{row.filename}">
-  <div><span class="badge" style="background:{color}">Q{q or "n/a"}</span> {row.surface_type}<br>{row.filename}</div>
+  {_image_link(source_path, filename, image, kind="gallery-thumbnail")}
+  <div><span class="badge" style="background:{color}">Q{q or "n/a"}</span> {html_lib.escape(str(row.surface_type))}<br>{_filename_link(run_dir, str(source_path), filename, quality=str(q or ""), surface=str(row.surface_type), confidence=f"{float(row.confidence):.3f}")}</div>
 </article>"""
         )
     return "\n".join(cells)

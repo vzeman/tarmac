@@ -990,6 +990,21 @@ def survey_cmd(
         "--quality-threshold",
         help="Save a frame as a problem when quality grade is this value or worse.",
     ),
+    crack_prob: float = typer.Option(
+        0.6,
+        "--crack-prob",
+        help="Minimum tile crack classifier probability before dense-mask confirmation is allowed.",
+    ),
+    min_crack_area: float = typer.Option(
+        0.3,
+        "--min-crack-area",
+        help="Minimum dense crack mask area percentage required to confirm a crack.",
+    ),
+    min_crack_length_px: int = typer.Option(
+        64,
+        "--min-crack-length-px",
+        help="Minimum longest connected crack component length in pixels.",
+    ),
     device: str = typer.Option("cpu", "--device", help="DINOv3 inference device: cpu, mps, or auto."),
 ) -> None:
     """Survey a GPS/IMU video and map DINOv3-recognized road problems."""
@@ -1001,9 +1016,61 @@ def survey_cmd(
         fps=fps,
         clip_seconds=clip_seconds,
         quality_threshold=quality_threshold,
+        crack_prob=crack_prob,
+        min_crack_area=min_crack_area,
+        min_crack_length_px=min_crack_length_px,
         device=device,
     )
     print_survey_summary(summary, console)
+
+
+@app.command("survey-confirm")
+def survey_confirm_cmd(
+    run_dir: Path = typer.Argument(..., help="Existing survey run directory with saved problem_images/."),
+    crack_prob: float = typer.Option(
+        0.6,
+        "--crack-prob",
+        help="Minimum tile crack classifier probability before dense-mask confirmation is allowed.",
+    ),
+    min_crack_area: float = typer.Option(
+        0.3,
+        "--min-crack-area",
+        help="Minimum dense crack mask area percentage required to confirm a crack.",
+    ),
+    min_crack_length_px: int = typer.Option(
+        64,
+        "--min-crack-length-px",
+        help="Minimum longest connected crack component length in pixels.",
+    ),
+    quality_threshold: int | None = typer.Option(
+        None,
+        "--quality-threshold",
+        help="Quality threshold to preserve non-crack problem frames. Defaults to the run summary value.",
+    ),
+    batch_size: int = typer.Option(8, "--batch-size", help="Embedding batch size for saved image recheck."),
+    device: str = typer.Option("cpu", "--device", help="DINOv3 inference device: cpu, mps, or auto."),
+) -> None:
+    """Re-check saved survey problem images with dense crack confirmation, without reading the video."""
+    from tarmac.survey.survey import confirm_survey_problems
+
+    summary = confirm_survey_problems(
+        run_dir,
+        crack_prob=crack_prob,
+        min_crack_area=min_crack_area,
+        min_crack_length_px=min_crack_length_px,
+        quality_threshold=quality_threshold,
+        device=device,
+        batch_size=batch_size,
+        rebuild_reports=True,
+    )
+    before = int(summary.get("problems_before_confirmation", summary.get("original_problems_found", 0)))
+    after = int(summary.get("problems_after_confirmation", summary.get("problems_found", 0)))
+    before_cracks = int(summary.get("crack_count_before_confirmation", 0))
+    after_cracks = int(summary.get("crack_count_after_confirmation", 0))
+    console.print(
+        f"Survey confirmation complete: problems {before}->{after}; cracks {before_cracks}->{after_cracks}"
+    )
+    console.print(f"Confirmed issue counts: {summary.get('confirmed_problem_issue_counts', {})}")
 
 
 @app.command("crack-measure")

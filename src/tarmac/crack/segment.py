@@ -211,6 +211,16 @@ def measure_crack_mask(mask: np.ndarray, mm_per_pixel: float | None = None) -> d
     max_width_px = float(widths.max()) if widths.size else 0.0
     labels = measure.label(mask, connectivity=2)
     n_components = int(labels.max())
+    max_component_area = 0
+    max_component_length = 0
+    for region in measure.regionprops(labels):
+        component = labels == region.label
+        component_area = int(region.area)
+        component_length = int(morphology.skeletonize(component).sum())
+        if component_length > max_component_length:
+            max_component_length = component_length
+        if component_area > max_component_area:
+            max_component_area = component_area
     result: dict[str, float | int] = {
         "crack_area_px": area_px,
         "crack_area_pct": float(area_px / analyzed_area * 100.0) if analyzed_area else 0.0,
@@ -218,6 +228,8 @@ def measure_crack_mask(mask: np.ndarray, mm_per_pixel: float | None = None) -> d
         "mean_width_px": mean_width_px,
         "max_width_px": max_width_px,
         "n_components": n_components,
+        "max_component_area_px": max_component_area,
+        "max_component_length_px": max_component_length,
     }
     if mm_per_pixel is not None:
         mm = float(mm_per_pixel)
