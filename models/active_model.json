@@ -1,4 +1,7 @@
 {
   "backbone": "dinov3",
-  "checkpoint": "models/finetuned_dinov3.pt"
+  "checkpoint": "models/finetuned_dinov3.pt",
+  "crack_segmenter": "dinov3_dense_head",
+  "crack_seg_head": "models/crack_seg_head.pt",
+  "crack_seg_head_metadata": "models/crack_seg_head.json"
 }

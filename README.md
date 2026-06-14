@@ -142,7 +142,7 @@ The assessment layer reuses `tarmac analyze`; it does not train or duplicate mod
 
 ### Crack & runway detection
 
-Crack detection is a separate binary track from the 1-5 quality grader. Crack datasets do not carry quality labels, so the crack head is trained independently on frozen active-backbone embeddings and is applied per tile during `tarmac analyze`.
+Crack detection is a separate binary track from the 1-5 quality grader. Crack datasets do not carry quality labels, so the tile crack head and pixel segmenters are trained independently from the quality classifier.
 
 ```bash
 uv run tarmac download cracks-concrete-pavement
@@ -152,11 +152,13 @@ uv run tarmac download runway-roboflow   # requires ROBOFLOW_API_KEY
 uv run tarmac prepare-cracks
 uv run tarmac train-crack                # requires Apple MPS; no CPU fallback
 uv run tarmac evaluate-crack
+uv run tarmac train-seg-head             # frozen active DINOv3 dense patch-token segmenter
+uv run tarmac evaluate-seg-head
 ```
 
 When `models/crack_head.pt` exists, `tarmac analyze` adds `tile_crack_prob` and `tile_crack` to `tiles.parquet`, plus per-frame `crack_ratio` and `frame_has_crack` in `results.parquet`. `tarmac report` then includes a **Cracked sections** panel with a crack-ratio timeline and red tile overlays showing which road/runway sections are cracked.
 
-Pixel-level crack geometry is available without mask training data through a hybrid segmenter: crack-head sliding-window localization plus classical dark thin-ridge extraction (`frangi`/`sato` vesselness, black-hat morphology, cleanup, skeleton measurements). It produces full-resolution red mask overlays and measures area, length, mean width, max width, and component count.
+Pixel-level crack geometry now prefers `models/crack_seg_head.pt` when present. That learned segmenter freezes the active DINOv3 ViT-B/16 backbone, decodes the dense 32x32 patch-token grid at 512 px input resolution, and outputs a full-resolution crack mask for area, length, mean width, max width, and component measurements. On the held-out expanded CrackAirport + CrackForest test split it reaches IoU `0.5191` / Dice `0.6834`, versus IoU `0.0226` / Dice `0.0441` for the classical fallback on the same masks. If the learned checkpoint is absent, `segment_cracks()` falls back to the older Frangi/Sato/black-hat ridge extractor.
 
 ```bash
 uv run tarmac crack-measure path/to/image-or-dir --out runs/crack-geometry
@@ -164,7 +166,7 @@ uv run tarmac crack-measure path/to/image-or-dir --mm-per-pixel 0.5 --out runs/c
 uv run tarmac analyze path/to/runway.jpg --region full --crack-segmentation --mm-per-pixel 0.5
 ```
 
-`analyze` also runs crack segmentation automatically when a crack head exists and the selected region is `full`. Geometry columns include `crack_area_px`, `crack_area_pct`, `crack_length_px`, `crack_mean_width_px`, and metric variants when `--mm-per-pixel` is provided. See `reports/CRACK_SEGMENTATION.md`.
+`analyze` also runs crack segmentation automatically when a learned segmenter or crack head exists and the selected region is `full`. Geometry columns include `crack_area_px`, `crack_area_pct`, `crack_length_px`, `crack_mean_width_px`, and metric variants when `--mm-per-pixel` is provided. See `reports/CRACK_SEGMENTATION.md`.
 
 Runway-specific Roboflow data is integrated through the Roboflow REST API and requires a free API key:
 

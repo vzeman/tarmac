@@ -18,6 +18,7 @@ class CrackSegmentationResult:
     heatmap: np.ndarray
     measurements: dict[str, float | int]
     overlay_path: Path | None = None
+    segmenter: str = "classical"
 
 
 def segment_cracks(
@@ -30,8 +31,55 @@ def segment_cracks(
     prob_thresh: float = 0.3,
     min_object_px: int = 24,
     batch_size: int = 32,
+    learned_checkpoint_path: Path = Path("models/crack_seg_head.pt"),
+    prefer_learned: bool = True,
+    device_name: str = "auto",
 ) -> CrackSegmentationResult:
     """Segment crack pixels and measure crack geometry on a full image."""
+    if prefer_learned and learned_checkpoint_path.exists():
+        from tarmac.crack.seg_head import predict_crack_mask
+
+        rgb_image = image.convert("RGB")
+        mask, heatmap = predict_crack_mask(
+            rgb_image,
+            checkpoint_path=learned_checkpoint_path,
+            device_name=device_name,
+        )
+        measurements = measure_crack_mask(mask, mm_per_pixel=mm_per_pixel)
+        overlay_path = None
+        if output_path is not None:
+            overlay_path = render_crack_overlay(rgb_image, mask, measurements, output_path)
+        return CrackSegmentationResult(
+            mask=mask,
+            heatmap=heatmap,
+            measurements=measurements,
+            overlay_path=overlay_path,
+            segmenter="dinov3_dense_head",
+        )
+    return classical_segment_cracks(
+        image=image,
+        crack_head=crack_head,
+        embedder=embedder,
+        mm_per_pixel=mm_per_pixel,
+        output_path=output_path,
+        prob_thresh=prob_thresh,
+        min_object_px=min_object_px,
+        batch_size=batch_size,
+    )
+
+
+def classical_segment_cracks(
+    image: Image.Image,
+    crack_head: dict[str, Any] | None,
+    embedder: Any | None,
+    mm_per_pixel: float | None = None,
+    *,
+    output_path: Path | None = None,
+    prob_thresh: float = 0.3,
+    min_object_px: int = 24,
+    batch_size: int = 32,
+) -> CrackSegmentationResult:
+    """Run the pre-learned classical hybrid crack segmenter."""
     rgb_image = image.convert("RGB")
     rgb = np.asarray(rgb_image, dtype=np.uint8)
     heatmap = crack_probability_heatmap(
@@ -55,6 +103,7 @@ def segment_cracks(
         heatmap=heatmap,
         measurements=measurements,
         overlay_path=overlay_path,
+        segmenter="classical",
     )
 
 

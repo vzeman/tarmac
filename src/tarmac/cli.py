@@ -772,6 +772,97 @@ def evaluate_crack(
     )
 
 
+@app.command("train-seg-head")
+def train_seg_head_cmd(
+    manifest: Path = typer.Option(
+        Path("data/processed/yolo_seg_expanded/manifest.jsonl"),
+        help="Expanded segmentation manifest with source masks.",
+    ),
+    checkpoint: Path = typer.Option(Path("models/crack_seg_head.pt"), help="Best dense segmentation head output."),
+    metadata: Path = typer.Option(Path("models/crack_seg_head.json"), help="Training metadata JSON."),
+    checkpoint_dir: Path = typer.Option(
+        Path("models/checkpoints/seg_head"),
+        help="Per-epoch checkpoint directory.",
+    ),
+    epochs: int = typer.Option(60, help="Maximum dense-head epochs."),
+    batch_size: int = typer.Option(4, help="MPS image batch size."),
+    lr: float = typer.Option(2e-4, help="Dense-head AdamW learning rate."),
+    weight_decay: float = typer.Option(1e-4, help="Dense-head AdamW weight decay."),
+    patience: int = typer.Option(8, help="Early-stopping patience."),
+    seed: int = typer.Option(42, help="Training seed."),
+    resume: bool = typer.Option(False, help="Resume from latest dense-head checkpoint."),
+    num_workers: int = typer.Option(0, help="DataLoader workers."),
+    device: str = typer.Option("mps", help="Training device; MPS only."),
+) -> None:
+    """Train the frozen-DINOv3 dense patch-token crack segmentation head."""
+    from tarmac.crack.seg_head import train_seg_head
+
+    result = train_seg_head(
+        manifest_path=manifest,
+        output_checkpoint=checkpoint,
+        output_metadata=metadata,
+        checkpoint_dir=checkpoint_dir,
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+        weight_decay=weight_decay,
+        patience=patience,
+        seed=seed,
+        resume=resume,
+        num_workers=num_workers,
+        device=device,
+    )
+    console.print(
+        f"Seg head trained: best_epoch={result['best_epoch']} "
+        f"best_val_dice={result['best_val_dice']:.4f}; checkpoint={result['checkpoint']}"
+    )
+
+
+@app.command("evaluate-seg-head")
+def evaluate_seg_head_cmd(
+    manifest: Path = typer.Option(
+        Path("data/processed/yolo_seg_expanded/manifest.jsonl"),
+        help="Expanded segmentation manifest with source masks.",
+    ),
+    checkpoint: Path = typer.Option(Path("models/crack_seg_head.pt"), help="Dense segmentation head checkpoint."),
+    metadata: Path = typer.Option(Path("models/crack_seg_head.json"), help="Dense segmentation metadata JSON."),
+    metrics: Path = typer.Option(Path("reports/crack_seg_head_metrics.json"), help="Metrics JSON output."),
+    report_path: Path = typer.Option(Path("reports/CRACK_SEGMENTATION.md"), help="Markdown report output."),
+    batch_size: int = typer.Option(4, help="MPS image batch size."),
+    num_workers: int = typer.Option(0, help="DataLoader workers."),
+    device: str = typer.Option("mps", help="Evaluation device; MPS only."),
+    render_examples: bool = typer.Option(True, help="Render CrackAirport example panels."),
+    examples_dir: Path = typer.Option(Path("reports/examples"), help="Example overlay output directory."),
+    yolo_weights: Path | None = typer.Option(
+        None,
+        help="Optional YOLO segmentation weights for common-test comparison.",
+    ),
+    compare_classical: bool = typer.Option(True, help="Compare the classical fallback on the common test split."),
+) -> None:
+    """Evaluate the dense segmentation head on val/test masks and update the crack segmentation report."""
+    from tarmac.crack.seg_head import evaluate_seg_head
+
+    result = evaluate_seg_head(
+        manifest_path=manifest,
+        checkpoint_path=checkpoint,
+        metadata_path=metadata,
+        metrics_path=metrics,
+        report_path=report_path,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        device=device,
+        render_examples=render_examples,
+        examples_dir=examples_dir,
+        yolo_weights=yolo_weights,
+        compare_classical=compare_classical,
+    )
+    test = result["test"]["overall"]
+    console.print(
+        f"Seg head metrics written to {metrics}; threshold={result['threshold']:.3f} "
+        f"test_iou={test['iou']:.4f} test_dice={test['dice']:.4f}"
+    )
+
+
 @app.command("evaluate-defect")
 def evaluate_defect(
     embeddings: Path = typer.Option(
@@ -898,7 +989,7 @@ def crack_measure(
     ),
     out: Path = typer.Option(Path("runs/crack_measure"), "--out", "-o", help="Output directory."),
     batch_size: int = typer.Option(32, "--batch-size", help="Sliding-window embedding batch size."),
-    device: str = typer.Option("cpu", "--device", help="Embedding device when a crack head is available."),
+    device: str = typer.Option("cpu", "--device", help="Inference device: cpu, mps, or auto."),
 ) -> None:
     """Measure crack area, length, and width on full images."""
     import pandas as pd
@@ -922,7 +1013,8 @@ def crack_measure(
     if not image_paths:
         raise typer.BadParameter(f"No images found in {path}")
 
-    crack_detector = load_crack_detector()
+    learned_checkpoint = Path("models/crack_seg_head.pt")
+    crack_detector = None if learned_checkpoint.exists() else load_crack_detector()
     embedder = None
     if crack_detector is not None:
         active = load_active_artifacts()
@@ -945,16 +1037,19 @@ def crack_measure(
                 mm_per_pixel=mm_per_pixel,
                 output_path=overlay,
                 batch_size=batch_size,
+                device_name=device,
             )
         row = {
             "image_path": str(image_path),
             "filename": image_path.name,
             "overlay_path": str(overlay),
+            "segmenter": result.segmenter,
             **result.measurements,
         }
         rows.append(row)
         console.print(
             f"{index + 1:02d}. {image_path.name}: "
+            f"segmenter={result.segmenter} "
             f"area={float(result.measurements['crack_area_pct']):.4f}% "
             f"length={int(result.measurements['total_length_px'])} px"
         )

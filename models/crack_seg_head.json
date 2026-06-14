@@ -1,0 +1,279 @@
+{
+  "config": {
+    "manifest_path": "data/processed/yolo_seg_expanded/manifest.jsonl",
+    "output_checkpoint": "models/crack_seg_head.pt",
+    "output_metadata": "models/crack_seg_head.json",
+    "checkpoint_dir": "models/checkpoints/seg_head",
+    "image_size": 512,
+    "patch_size": 16,
+    "epochs": 60,
+    "batch_size": 4,
+    "lr": 0.0002,
+    "weight_decay": 0.0001,
+    "patience": 8,
+    "seed": 42,
+    "device": "mps",
+    "hidden_dim": 256,
+    "dropout": 0.05,
+    "pos_weight": 30.0,
+    "backbone_model_name": "facebook/dinov3-vitb16-pretrain-lvd1689m",
+    "backbone_checkpoint": "models/finetuned_dinov3.pt"
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "loss": 1.2614589923835662,
+      "val_iou": 0.3408204876513753,
+      "val_dice": 0.5083760142244955,
+      "val_precision": 0.3630073477866125,
+      "val_recall": 0.8479385532862248
+    },
+    {
+      "epoch": 2,
+      "loss": 1.0429476620203042,
+      "val_iou": 0.2552708683969214,
+      "val_dice": 0.4067183821814047,
+      "val_precision": 0.2615400568957591,
+      "val_recall": 0.9141592114896849
+    },
+    {
+      "epoch": 3,
+      "loss": 0.9421998852706818,
+      "val_iou": 0.43845932651518815,
+      "val_dice": 0.6096235304440617,
+      "val_precision": 0.5435960760534391,
+      "val_recall": 0.6939085693389855,
+      "val_threshold": 0.875
+    },
+    {
+      "epoch": 4,
+      "loss": 0.8813050660742334,
+      "val_iou": 0.41134098562876803,
+      "val_dice": 0.5829080141756261,
+      "val_precision": 0.4722939664237137,
+      "val_recall": 0.7611811545583639,
+      "val_threshold": 0.95
+    },
+    {
+      "epoch": 5,
+      "loss": 0.8652241817439895,
+      "val_iou": 0.4572623315516092,
+      "val_dice": 0.6275635095360526,
+      "val_precision": 0.5547828131138008,
+      "val_recall": 0.722323486082909,
+      "val_threshold": 0.9
+    },
+    {
+      "epoch": 6,
+      "loss": 0.8317694642457617,
+      "val_iou": 0.4614737195823185,
+      "val_dice": 0.6315183275607655,
+      "val_precision": 0.5671602452288118,
+      "val_recall": 0.7123519267742812,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 7,
+      "loss": 0.81083631695035,
+      "val_iou": 0.46191250961210606,
+      "val_dice": 0.6319290745171431,
+      "val_precision": 0.5590167865261687,
+      "val_recall": 0.7267140329158112,
+      "val_threshold": 0.95
+    },
+    {
+      "epoch": 8,
+      "loss": 0.8027493451015059,
+      "val_iou": 0.4736100909975579,
+      "val_dice": 0.6427888813884931,
+      "val_precision": 0.5671723427674602,
+      "val_recall": 0.7416697609644866,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 9,
+      "loss": 0.8032069037477654,
+      "val_iou": 0.4651108207203664,
+      "val_dice": 0.6349155492438183,
+      "val_precision": 0.5750572703060407,
+      "val_recall": 0.7086830695326979,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 10,
+      "loss": 0.7807384094560003,
+      "val_iou": 0.47114466844664576,
+      "val_dice": 0.6405143947455808,
+      "val_precision": 0.5860704014247684,
+      "val_recall": 0.7061096339922242,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 11,
+      "loss": 0.774976569773203,
+      "val_iou": 0.48924252338553076,
+      "val_dice": 0.6570353930981289,
+      "val_precision": 0.5884295803772902,
+      "val_recall": 0.7437502567394612,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 12,
+      "loss": 0.7665100617581103,
+      "val_iou": 0.4871159987393867,
+      "val_dice": 0.655114999976209,
+      "val_precision": 0.6003823963504629,
+      "val_recall": 0.7208277521866148,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 13,
+      "loss": 0.7548263497381326,
+      "val_iou": 0.49083595318041395,
+      "val_dice": 0.6584707755850792,
+      "val_precision": 0.5844135980697258,
+      "val_recall": 0.7540206406444946,
+      "val_threshold": 0.9
+    },
+    {
+      "epoch": 14,
+      "loss": 0.5519858203918101,
+      "val_iou": 0.4664999526181125,
+      "val_dice": 0.6362086160115855,
+      "val_precision": 0.5738876327939861,
+      "val_recall": 0.7137139547864693,
+      "val_threshold": 0.95
+    },
+    {
+      "epoch": 15,
+      "loss": 0.3781483203621514,
+      "val_iou": 0.490602473229313,
+      "val_dice": 0.658260645665572,
+      "val_precision": 0.6050492855319718,
+      "val_recall": 0.7217338914614295,
+      "val_threshold": 0.95
+    },
+    {
+      "epoch": 16,
+      "loss": 0.3449551504509277,
+      "val_iou": 0.49020480709827113,
+      "val_dice": 0.6579025980365727,
+      "val_precision": 0.6005926310223384,
+      "val_recall": 0.7273036275372906,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 17,
+      "loss": 0.35553882669837,
+      "val_iou": 0.4920458280331605,
+      "val_dice": 0.6595585990569518,
+      "val_precision": 0.5985900004004935,
+      "val_recall": 0.7343554047381822,
+      "val_threshold": 0.875
+    },
+    {
+      "epoch": 18,
+      "loss": 0.3284828691664769,
+      "val_iou": 0.4875775310191407,
+      "val_dice": 0.6555322608094261,
+      "val_precision": 0.5954529039014484,
+      "val_recall": 0.7290957696585909,
+      "val_threshold": 0.85
+    },
+    {
+      "epoch": 19,
+      "loss": 0.3289857264204198,
+      "val_iou": 0.48681618439199353,
+      "val_dice": 0.6548438058482235,
+      "val_precision": 0.591961974325902,
+      "val_recall": 0.7326728047869928,
+      "val_threshold": 0.9
+    },
+    {
+      "epoch": 20,
+      "loss": 0.32110645374260754,
+      "val_iou": 0.49838031311261777,
+      "val_dice": 0.6652253887096549,
+      "val_precision": 0.5991951185502321,
+      "val_recall": 0.7476108127787385,
+      "val_threshold": 0.875
+    },
+    {
+      "epoch": 21,
+      "loss": 0.3153760609407741,
+      "val_iou": 0.4854311114665387,
+      "val_dice": 0.653589530634351,
+      "val_precision": 0.5894591348877257,
+      "val_recall": 0.7333775797785154,
+      "val_threshold": 0.95
+    },
+    {
+      "epoch": 22,
+      "loss": 0.3118688423461449,
+      "val_iou": 0.4918395266496219,
+      "val_dice": 0.6593732340021808,
+      "val_precision": 0.6082464895559483,
+      "val_recall": 0.7198837564265411,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 23,
+      "loss": 0.311254677526002,
+      "val_iou": 0.48256869335220187,
+      "val_dice": 0.650989995291317,
+      "val_precision": 0.5821485980376528,
+      "val_recall": 0.7382965064907763,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 24,
+      "loss": 0.30804865659657776,
+      "val_iou": 0.48611374676360053,
+      "val_dice": 0.6542079942699403,
+      "val_precision": 0.6008097073218731,
+      "val_recall": 0.7180239559060547,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 25,
+      "loss": 0.31329818158775163,
+      "val_iou": 0.47992210266227825,
+      "val_dice": 0.648577518774713,
+      "val_precision": 0.5786017208772911,
+      "val_recall": 0.737807594010943,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 26,
+      "loss": 0.30352910519268994,
+      "val_iou": 0.4914057743940087,
+      "val_dice": 0.6589833334843802,
+      "val_precision": 0.5991526663915612,
+      "val_recall": 0.7320888483654455,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 27,
+      "loss": 0.31024178973558997,
+      "val_iou": 0.4941757926699478,
+      "val_dice": 0.6614694135646562,
+      "val_precision": 0.6026345221328068,
+      "val_recall": 0.7330352604969187,
+      "val_threshold": 0.925
+    },
+    {
+      "epoch": 28,
+      "loss": 0.31352012063732865,
+      "val_iou": 0.4963004154766135,
+      "val_dice": 0.6633700162657884,
+      "val_precision": 0.6086361175469687,
+      "val_recall": 0.7289209854606933,
+      "val_threshold": 0.95
+    }
+  ],
+  "best_epoch": 20,
+  "best_val_dice": 0.6652253887096549,
+  "threshold": 0.875,
+  "checkpoint": "models/crack_seg_head.pt",
+  "latest_epoch_checkpoint": "models/checkpoints/seg_head/epoch_28.pt"
+}

@@ -118,6 +118,7 @@ def analyze_path(
         if non_road_threshold is None:
             non_road_threshold = calibrate_non_road_threshold(artifacts.embeddings_path, index, k=k)
         crack_detector = load_crack_detector()
+        learned_crack_segmenter_exists = Path("models/crack_seg_head.pt").exists()
         defect_detector = load_defect_detector()
         chosen_region = resolve_region_mode(
             requested_region=region,
@@ -131,7 +132,8 @@ def analyze_path(
         )
         Console().print(f"Region mode: {chosen_region} (requested: {region})")
         run_crack_segmentation = bool(
-            crack_segmentation or (chosen_region == "full" and crack_detector is not None)
+            crack_segmentation
+            or (chosen_region == "full" and (crack_detector is not None or learned_crack_segmenter_exists))
         )
         rows, tile_rows = analyze_frames(
             frame_paths=frame_paths,
@@ -151,6 +153,7 @@ def analyze_path(
             crack_segmentation=run_crack_segmentation,
             mm_per_pixel=mm_per_pixel,
             defect_gating=defect_gating,
+            device_name=device,
         )
     finally:
         if temp_dir_ctx is not None:
@@ -276,6 +279,7 @@ def analyze_frames(
     crack_segmentation: bool = False,
     mm_per_pixel: float | None = None,
     defect_gating: bool = True,
+    device_name: str = "auto",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     frame_records: list[dict[str, Any]] = []
     tile_records: list[dict[str, Any]] = []
@@ -454,11 +458,13 @@ def analyze_frames(
                     mm_per_pixel=mm_per_pixel,
                     output_path=seg_dir / overlay_name,
                     batch_size=batch_size,
+                    device_name=device_name,
                 )
             measurements = seg.measurements
             record.update(
                 {
                     "crackseg_overlay_path": str(Path("crackseg") / overlay_name),
+                    "crack_segmenter": seg.segmenter,
                     "crack_area_px": int(measurements["crack_area_px"]),
                     "crack_area_pct": float(measurements["crack_area_pct"]),
                     "crack_length_px": int(measurements["total_length_px"]),
@@ -657,6 +663,11 @@ def build_summary(
         "mean_crack_ratio": float(frames_df["crack_ratio"].mean()) if crack_available and len(frames_df) else None,
         "frames_with_crack": int(frames_df["frame_has_crack"].sum()) if crack_available and len(frames_df) else 0,
         "crack_head": str(Path("models/crack_head.pt")) if Path("models/crack_head.pt").exists() else None,
+        "crack_segmenter": (
+            str(frames_df["crack_segmenter"].mode().iloc[0])
+            if "crack_segmenter" in frames_df.columns and not frames_df["crack_segmenter"].dropna().empty
+            else ("dinov3_dense_head" if Path("models/crack_seg_head.pt").exists() else "classical")
+        ),
         "active_suffix": artifacts.suffix,
         "checkpoint": str(artifacts.checkpoint_path),
         "reference_embeddings": str(artifacts.embeddings_path),
