@@ -56,11 +56,22 @@ Write **both** a machine JSON and a standard GPX:
 - **Naming**: `<session_id>/<session_id>_seg<NNN>.{mov|mp4}` + `<...>_seg<NNN>.track.json` + `.gpx`.
 - **Storage guard**: stop & warn when free space < threshold; never fill the volume.
 
-## 6. UI / UX
-- **Record screen**: live camera preview, big Start/Stop, live mini-map of the track, current speed, captured-frame count, current segment size, free storage, recording/paused state, GPS-fix quality indicator.
-- **Sessions screen**: list past sessions (thumbnail, date, distance, duration, #frames, #segments, size); open detail with map of the track + export.
-- **Settings**: capture fps (30/60), resolution (1080p/4K), codec (HEVC), **downstream frame spacing (m), default 1 m**, pause speed & debounce, max segment size (GB), storage location, sidecar options, keep-screen-on, units. (Frame spacing is metadata used by Tarmac for distance-sampling; the phone records continuous video.)
-- **Export screen**: copy/share segments + sidecars (to Files/SSD, AirDrop, or HTTP upload to a Tarmac ingest endpoint — v2).
+## 6. UI / UX — mounted, driver-operated, landscape-first, glanceable
+
+**Design principles:** the driver mounts the phone, taps once, drives — status must be readable in <1 s and require no touch while moving. Landscape-first (portrait fallback). Sunlight-readable (high contrast, large type, bold state colors) + a night/dark mode. Safety: one huge Start, Stop guarded (long-press/confirm), haptic + optional audio cues. Trust-the-capture: GPS-fix quality, sample rates, and storage-time-remaining always visible. Color semantics throughout: **green=ready/good, red=recording, amber=paused/warning, gray=idle.** Touch targets ≥64 pt, SafeArea/notch-aware both orientations.
+
+- **Record screen (hero, landscape):** full-bleed camera preview as background (verify road framing) with high-contrast overlay:
+  - Top strip: GPS-fix dot + accuracy + satellites · REC timer · **storage remaining as time-left** (e.g. "~3.2 h").
+  - Center-top **state pill**: `● REC` (red, pulsing) / `❚❚ PAUSED — stationary` (amber) / `READY` (green).
+  - Left: large **speed** (km/h) readout — primary glance.
+  - Right **thumb rail**: big circular **Start/Stop** (Stop = long-press to confirm), live frames + segment counters, GPS/IMU sample ticks.
+  - Collapsible **map inset** (corner) so it never pushes controls off-screen.
+  - Auto screen-dim option (keeps recording; cuts glare/battery at night).
+  - Portrait fallback: preview on top, controls + HUD stacked below, all usable.
+- **Pre-flight (before Start):** readiness card — ✓ Camera · ✓ GPS fix (waits for good accuracy) · ✓ Storage (X h) · ✓ Mount calibration — big **START SURVEY** enabled only when green. Prevents bad recordings (no GPS / full disk).
+- **Sessions / Review:** cards (map thumbnail, date, distance, duration, #frames, #segments, size); detail = full track on map + scrub + **Export to Tarmac**. **Delete session**: swipe-to-delete on the list + a Delete action in detail, with a confirm dialog; deletes the session's video segments + sidecars + thumbnails from disk and updates free-storage. Optional "delete all" / bulk select.
+- **Settings (grouped):** **Capture** (resolution 1080p/4K, fps 30/60, HEVC, segment size) · **Survey** (downstream frame spacing default **1 m**, auto-pause speed & debounce) · **Calibration** (mount height, tilt, lens — for true crack-area scale) · **Storage** (internal / external SSD) · **Display** (light/night theme, units, keep-awake).
+- **Export:** copy/share segments + sidecars (Files/SSD, AirDrop, or HTTP upload to a Tarmac ingest endpoint — v2).
 
 ## 7. Permissions, power, reliability
 - Permissions: camera, location (**Always**, for background), motion/sensors, storage. Clear rationale prompts.
