@@ -979,6 +979,33 @@ def assess(
     print_assessment_summary(payload, console)
 
 
+@app.command("survey")
+def survey_cmd(
+    video: Path = typer.Argument(..., help="GPS/IMU dashcam-style video to survey."),
+    out: Path | None = typer.Option(None, "--out", "-o", help="Output survey run directory."),
+    fps: float = typer.Option(1.0, "--fps", help="Seek-sampled frame rate in frames per second."),
+    clip_seconds: float | None = typer.Option(None, "--clip-seconds", help="Limit processing to the first N seconds."),
+    quality_threshold: int = typer.Option(
+        4,
+        "--quality-threshold",
+        help="Save a frame as a problem when quality grade is this value or worse.",
+    ),
+    device: str = typer.Option("cpu", "--device", help="DINOv3 inference device: cpu, mps, or auto."),
+) -> None:
+    """Survey a GPS/IMU video and map DINOv3-recognized road problems."""
+    from tarmac.survey.survey import print_survey_summary, run_survey
+
+    summary = run_survey(
+        video_path=video,
+        out_dir=out,
+        fps=fps,
+        clip_seconds=clip_seconds,
+        quality_threshold=quality_threshold,
+        device=device,
+    )
+    print_survey_summary(summary, console)
+
+
 @app.command("crack-measure")
 def crack_measure(
     path: Path = typer.Argument(..., help="Image file or directory of images to measure."),

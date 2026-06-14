@@ -140,6 +140,30 @@ UV_CACHE_DIR=.uv-cache uv run tarmac report runs/my-assessment
 
 The assessment layer reuses `tarmac analyze`; it does not train or duplicate model code. It writes `assessment.json`, `assessment.parquet`, and a report-ready condition summary with repair priorities `none`, `monitor`, `plan_repair`, and `urgent`.
 
+### Road survey (GPS/IMU video -> map of problems)
+
+`tarmac survey` processes a dashcam-style video by seek-sampling frames, running only the active fine-tuned DINOv3 analyze/assess pipeline, and writing a route map plus a problem table. It is designed for very large ProRes files: frames are extracted one timestamp at a time with ffmpeg seek, good-road images are discarded after inference, and only problem full images plus thumbnails are kept.
+
+```bash
+UV_CACHE_DIR=.uv-cache uv run tarmac survey path/to/video.mov --fps 1 --device cpu --out runs/survey_my_video
+UV_CACHE_DIR=.uv-cache uv run tarmac survey path/to/video.mov --clip-seconds 60 --fps 1 --device cpu --out runs/survey_clip60
+```
+
+The route is approximate. iPhone videos may contain only a single QuickTime start GPS point instead of a continuous GPS track; in that case `tarmac survey` attempts to demux and validate the high-rate Core Media metadata stream and dead-reckon from the start point. If the private Apple metadata fields cannot be validated as physically plausible accelerometer/gyro samples, the command falls back to a clearly marked nominal straight route so the survey still completes. Every output repeats the caveat: **Route is IMU-estimated (approximate, drifts) — no continuous GPS in source.**
+
+Problem rule: a sampled frame is saved when a crack is detected, a gated non-crack structural defect is detected, or the quality grade is at least `--quality-threshold` (default `4`; higher is worse). Outputs are written under the run directory:
+
+| Output | Contents |
+| --- | --- |
+| `telemetry.parquet` | Time-indexed approximate route: `t`, `lat`, `lon`, speed, heading, source, caveat |
+| `track.geojson` | Route line plus problem point features |
+| `samples.parquet` | Lightweight record for every sampled frame, with quality, surface type, speed, flags, and issue list |
+| `problems.parquet` | Subset of sampled frames that triggered the problem rule |
+| `problem_images/` | Full JPEG and thumbnail only for problem frames |
+| `map.html` | Leaflet map with OSM tiles, quality-colored route segments, start marker, and problem popups |
+| `problems_table.html` | Sortable problem table with thumbnails and links |
+| `index.html` | Links to the survey map, table, and summary |
+
 ### Crack & runway detection
 
 Crack detection is a separate binary track from the 1-5 quality grader. Crack datasets do not carry quality labels, so the tile crack head and pixel segmenters are trained independently from the quality classifier.
