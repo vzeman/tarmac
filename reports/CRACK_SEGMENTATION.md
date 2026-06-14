@@ -23,14 +23,14 @@ Chosen threshold: `0.875` (max Dice on validation).
 
 ## Common Test Comparison
 
-Pixel metrics below use the common held-out `data/processed/yolo_seg_expanded` test split with masks resized to 512 px.
+Pixel metrics below use the held-out CrackAirport + CrackForest dense-segmentation split with masks resized to 512 px.
 
 | Segmenter | IoU | Dice/F1 | Precision | Recall | Images |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | dinov3_dense_head | 0.5191 | 0.6834 | 0.5855 | 0.8207 | 354 |
 | classical | 0.0226 | 0.0441 | 0.0651 | 0.0334 | 354 |
 
-Verdict: the DINOv3 dense head is the selected default because it is trained directly on pixel masks from CrackAirport and CrackForest and produces a full-resolution mask that keeps the existing area, length, and width measurement path intact. YOLO-seg-expanded remains the mobile/export model; the classical method remains the no-checkpoint fallback.
+Verdict: the DINOv3 dense head is the selected default because it is trained directly on pixel masks from CrackAirport and CrackForest and produces a full-resolution mask that keeps the existing area, length, and width measurement path intact. The classical method remains the no-checkpoint fallback.
 
 ## Example Overlays
 

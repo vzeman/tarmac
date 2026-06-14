@@ -99,8 +99,6 @@ Tile-level crack flags (left) mark which sections are cracked; `tarmac visualize
 | --- | --- |
 | ![Tile-level crack detection](reports/examples/03_crack_tiles.png) | ![Folder vector-space scatter](reports/examples/06_folder_scatter.png) |
 
-Mobile/real-time YOLO results: [`reports/YOLO_MOBILE.md`](reports/YOLO_MOBILE.md).
-
 ## Quickstart
 
 ```bash
@@ -235,33 +233,6 @@ The committed gallery image uses CrackAirport imagery for the crack case only. C
 
 Surface-quality and crack-specific capabilities are based on CC-licensed sources, subject to attribution/share-alike obligations. The non-crack structural defect labels are CODEBRIM-backed and marked non-commercial/research-only. See [`reports/DATA_LICENSES.md`](reports/DATA_LICENSES.md) before using the trained heads commercially.
 
-### Mobile / real-time (YOLO)
-
-Phase 8 adds small YOLO11 students for mobile and edge deployment. The fine-tuned DINOv3 model remains the high-accuracy server-side teacher; YOLO is trained from labels, with an optional future distillation hook, and exported separately. It is not a conversion of DINOv3 weights.
-
-```bash
-# CrackAirport airport-pavement masks -> YOLO segmentation
-uv run tarmac download crackairport
-uv run tarmac yolo-prep-seg
-uv run tarmac yolo-train-seg --model yolo11n-seg.pt
-uv run tarmac yolo-export --task seg
-
-# StreetSurfaceVis road tiles -> YOLO classification students
-uv run tarmac yolo-prep-cls
-uv run tarmac yolo-train-cls --target type
-uv run tarmac yolo-train-cls --target quality
-uv run tarmac yolo-export --task cls_type
-uv run tarmac yolo-export --task cls_quality
-
-# Benchmark and crack overlay inference
-uv run tarmac yolo-benchmark
-uv run tarmac yolo-detect path/to/runway-or-road-images --out runs/yolo_detect
-```
-
-Training is MPS-only by design (`device=mps`); if Apple MPS is unavailable, YOLO training fails loudly instead of silently falling back to CPU. Final full-training headline on this M3 Max: selected YOLO11n-seg crack segmentation reaches mask mAP50 `0.1853` / mAP50-95 `0.0389` and runs at `18.6 ms` CPU / `5.5 ms` MPS per image; YOLO11s-seg was also trained and tested lower at mask mAP50 `0.1536` / mAP50-95 `0.0293`. YOLO11n-cls type reaches top-1 `0.8436` vs DINOv3 `0.954`; YOLO11s-cls quality is kept as the better quality model with top-1 `0.5026` and off-by-one `0.9459` vs DINOv3 off-by-one `0.999`. On `/tmp/tarmac_runway_test`, YOLO detection correctly handled `10/12` images (`9/10` cracked detected, `1/2` non-cracked rejected). See `reports/YOLO_MOBILE.md` and `reports/yolo_benchmark.json`.
-
-Deploy the ONNX files with ONNX Runtime Mobile for Android/edge inference. CoreML export was enabled with `coremltools`, but Ultralytics conversion failed for all three models with `only 0-dimensional arrays can be converted to Python scalars`, so this run does not include iOS `.mlpackage` artifacts. TensorFlow/TFLite export was intentionally not attempted on this Mac because the TensorFlow toolchain is heavy and fragile here; ONNX covers the Android path.
-
 ### Visualize a folder of images in the vector space
 
 ```bash
@@ -286,7 +257,7 @@ Upload a photo/video or point at a local path, run the pipeline, and browse the 
 | [RSCD](https://thu-rsxd.com/rscd/) | 1M | material × unevenness × friction | Scale-up (downloader included) |
 | [RTK](https://data.mendeley.com/datasets/fxy5khmhpb/1) | 77,547 | asphalt/paved/unpaved + defects | Scale-up (downloader included) |
 | [Concrete & Pavement Crack](https://data.mendeley.com/datasets/429vzbgmbx/1) | 30,000 | crack / non-crack | Crack classifier head |
-| [CrackAirport](https://data.mendeley.com/datasets/3v5r2fxf89/1) | 2251 image/mask pairs in current v1 archive | airport pavement crack masks | YOLO mobile crack segmentation |
+| [CrackAirport](https://data.mendeley.com/datasets/3v5r2fxf89/1) | 2251 image/mask pairs in current v1 archive | airport pavement crack masks | DINOv3 dense crack segmentation |
 | [CRACK500](https://github.com/fyangneil/pavement-crack-detection), [DeepCrack](https://github.com/yhlleo/DeepCrack) | masks | pixel crack masks | Crack mask data, downloadable |
 | Roboflow runway crack detection | 40 images / 240 tiles in current pull | runway crack bounding boxes | Runway-specific crack labels with `ROBOFLOW_API_KEY` |
 
@@ -301,7 +272,6 @@ src/tarmac/
   defect/     multi-domain structural defect embedding cache + head
   eval/       accuracy, F1, silhouette, UMAP scatter
   inference/  photo/video analysis, folder visualization
-  yolo/       mobile YOLO dataset prep, training, export, detect, benchmark
   report/     HTML report + click-to-view UMAP scatter
   ui/         Streamlit app
 reports/      committed metrics + visualizations
@@ -310,4 +280,4 @@ PLAN.md       full architecture, decisions and phase plan
 
 ## Roadmap
 
-Built so far: data pipeline, embeddings, contrastive fine-tuning, clustering, evaluation, inference, reports, folder visualization, UI, Phase 7 crack/runway analysis, Phase 8 full-training YOLO mobile students, Phase 9 multi-domain structural defect detection, and Phase 10 condition assessment with licensing labels. Next (see `PLAN.md`): resolve native CoreML export, add more non-crack structural datasets, and consider defect-aware embedding fine-tuning.
+Built so far: data pipeline, embeddings, contrastive fine-tuning, clustering, evaluation, inference, reports, folder visualization, UI, Phase 7 crack/runway analysis, DINOv3 dense crack segmentation, Phase 9 multi-domain structural defect detection, and Phase 10 condition assessment with licensing labels. Next (see `PLAN.md`): add more non-crack structural datasets and consider defect-aware embedding fine-tuning.

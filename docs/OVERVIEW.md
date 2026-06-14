@@ -19,7 +19,6 @@ Built in phases (all on GitHub, datasets/weights gitignored):
 | **Crack segmentation + measurement** | **DINOv3 dense seg head** (the high-accuracy segmenter) traces exact crack pixels → area/length/width | test **IoU 0.52 / Dice 0.68** |
 | **Multi-domain structural defects** | multi-label head: crack, spalling, efflorescence, exposed rebar, corrosion, across pavement/bridge/building/runway (surface-gated to avoid phantom defects) | per-label AP 0.90–0.99 (within-dataset) |
 | **Condition assessment** | `tarmac assess` → PCI-proxy condition grade + repair priority (none/monitor/plan_repair/urgent), standards-grounded, with honest "visual proxy" disclaimers | — |
-| **Mobile/real-time** | YOLO11 students (seg + type/quality cls) exported to ONNX; ~47–270 FPS CPU | DINOv3 stays the server/teacher model |
 | **Road survey** | `tarmac survey <video>` → stream frames, locate via GPS, keep only problem frames, map + problems table | crack false-positives cut 494→82 via seg-head confirmation |
 | **GPS-source auto-detection** | detects: (1) embedded per-frame GPS incl. **drone** DJI `.SRT` / GoPro GPMF, (2) video + **sidecar** `.track.json`/`.gpx`, (3) none → IMU dead-reckoning | type printed in `summary.json` |
 

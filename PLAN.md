@@ -104,25 +104,8 @@ Implemented:
 5. `tarmac report` includes a Crack geometry section with the mask overlays and measurement table.
 6. Optional learned segmenter remains skipped for now: the local CRACK500/DeepCrack directories contain code mirrors but no usable masks, and Roboflow Universe does not expose a public API search endpoint for discovering arbitrary segmentation datasets. See `reports/CRACK_SEGMENTATION.md`.
 
-### Phase 8 — YOLO mobile / real-time track (user-requested 2026-06-13)
-Goal: produce small YOLO11 students for near-real-time mobile inference while keeping fine-tuned DINOv3 as the high-accuracy server-side teacher. This is **not** a weight conversion from DINOv3: YOLO models are trained directly on labels, with an optional DINOv3 teacher-to-student distillation hook for future pseudo-label expansion.
-
-Implemented:
-1. `tarmac download crackairport` downloads the Mendeley CrackAirport v1 dataset (`3v5r2fxf89`, CC BY 4.0) via the public API with zip fallback. The observed archive layout is `CrackAirport/train_images` plus `CrackAirport/train_masks`; the current public archive resolves to 2251 image/mask pairs.
-2. `tarmac yolo-prep-seg` converts CrackAirport masks into Ultralytics YOLO segmentation format using OpenCV contours, class `0 = crack`, and a deterministic 70/15/15 split with seed 42.
-3. `tarmac yolo-train-seg` trains YOLO11n-seg or YOLO11s-seg on Apple MPS only. CPU fallback is rejected explicitly so training either uses MPS or fails loudly.
-4. `tarmac yolo-prep-cls` crops lower-half 3x2 StreetSurfaceVis road tiles from the processed manifest and builds two ImageFolder classification datasets: surface type and quality grade.
-5. `tarmac yolo-train-cls --target type|quality` trains YOLO11n-cls students on MPS only. Quality reports both top-1 and off-by-one accuracy; `--distill` is present as an explicit future hook for DINOv3 pseudo-labeling.
-6. `tarmac yolo-export --task seg|cls_type|cls_quality` exports best weights to mobile-oriented formats through Ultralytics. ONNX is produced for Android/edge deployment through ONNX Runtime Mobile. CoreML export is enabled with `coremltools`, but the current Ultralytics/CoreML conversion fails with `only 0-dimensional arrays can be converted to Python scalars`; TensorFlow/TFLite is intentionally not attempted on this Mac because the toolchain is heavy and fragile here.
-7. `tarmac yolo-detect <image|dir>` runs the YOLO segmentation model, renders red crack overlays, and reuses the existing crack geometry measurement code so outputs are comparable with the DINOv3/classical crack pipeline.
-8. `tarmac yolo-benchmark` writes `reports/YOLO_MOBILE.md` and `reports/yolo_benchmark.json` with parameters, file sizes, CPU/MPS latency, and metric headlines.
-
-Final full-training results on 2026-06-13, MPS-only with seed 42:
-- Crack segmentation: YOLO11n-seg trained for 200 epochs at 512 px and is the selected default with held-out mask mAP50 `0.1853`, mAP50-95 `0.0389`; YOLO11s-seg also trained for 200 epochs and tested lower at mask mAP50 `0.1536`, mAP50-95 `0.0293`.
-- Surface type classification: YOLO11n-cls trained for 100 epochs at 224 px and reached test top-1 `0.8436` vs DINOv3 `0.954`.
-- Quality classification: YOLO11n-cls reached test top-1 `0.5064`, off-by-one `0.9390`; because off-by-one was below `0.95`, YOLO11s-cls quality was also trained and kept as the better model with test top-1 `0.5026`, off-by-one `0.9459` vs DINOv3 off-by-one `0.999`.
-- Export/latency: ONNX exports are available (`seg` `11.0 MB`, `type` `5.9 MB`, `quality` `20.8 MB`). Benchmark on `/tmp/tarmac_runway_test` gives crack segmentation `18.6 ms` CPU / `5.5 ms` MPS, type `3.7 ms` CPU / `1.5 ms` MPS, and quality `5.3 ms` CPU / `1.5 ms` MPS.
-- Runway smoke inference: `tarmac yolo-detect /tmp/tarmac_runway_test --out runs/yolo_detect_final --device mps` correctly handled `10/12` images (`9/10` cracked detected, `1/2` non-cracked rejected).
+### Phase 8 — Dropped mobile track
+Removed: Tarmac no longer includes a mobile detector track; the project uses the fine-tuned DINOv3 pipeline and DINOv3 dense crack-segmentation head only.
 
 ### Phase 9 — Multi-domain structural-condition defect head (user-requested 2026-06-14)
 Goal: add a multi-label structural defect track on the frozen active fine-tuned DINOv3 backbone, covering crack, spalling, efflorescence, exposed rebar, and corrosion across pavement/runway/bridge/building/generic-concrete imagery.
@@ -141,7 +124,7 @@ Final MPS run, seed 42:
 - Caveat: bridge is the only domain with all five non-crack structural labels in the current manifest; building, pavement, runway, and concrete-generic domain metrics are effectively crack-transfer checks. Corrosion is the weakest label because its visual signal overlaps staining/efflorescence and has fewer positives.
 
 ### Phase 10 — Condition assessment, repair priority, and licensing labels (user-requested 2026-06-14)
-Goal: add a capstone rules/reporting layer on top of existing `tarmac analyze` outputs without retraining models or touching YOLO assets.
+Goal: add a capstone rules/reporting layer on top of existing `tarmac analyze` outputs without retraining models.
 
 Implemented:
 1. `tarmac assess <image|dir|video> [--mm-per-pixel X] [--out DIR]` calls the existing analyze pipeline on CPU-capable inference paths, forces crack segmentation so crack geometry is available, and writes `assessment.json` plus `assessment.parquet`.

@@ -1,7 +1,7 @@
 {
   "checkpoint": "models/crack_seg_head.pt",
   "metadata": "models/crack_seg_head.json",
-  "manifest": "data/processed/yolo_seg_expanded/manifest.jsonl",
+  "manifest": "data/processed/crack_seg_expanded/manifest.jsonl",
   "threshold": 0.875,
   "val": {
     "overall": {

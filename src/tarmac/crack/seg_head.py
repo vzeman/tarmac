@@ -22,10 +22,10 @@ from tarmac.datasets.crackairport import find_crackairport_pairs
 from tarmac.datasets.crackforest import find_crackforest_pairs
 from tarmac.embedding.embedder import DINOV3_MODEL, HFBackboneEmbedder
 from tarmac.inference.analyze import load_active_artifacts
-from tarmac.yolo.common import SEED, require_mps, seed_everything, write_json
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+SEED = 42
 DEFAULT_IMAGE_SIZE = 512
 DEFAULT_PATCH_SIZE = 16
 DEFAULT_CHECKPOINT = Path("models/crack_seg_head.pt")
@@ -33,9 +33,24 @@ DEFAULT_METADATA = Path("models/crack_seg_head.json")
 DEFAULT_METRICS = Path("reports/crack_seg_head_metrics.json")
 DEFAULT_REPORT = Path("reports/CRACK_SEGMENTATION.md")
 DEFAULT_CHECKPOINT_DIR = Path("models/checkpoints/seg_head")
-DEFAULT_MANIFEST = Path("data/processed/yolo_seg_expanded/manifest.jsonl")
-DEFAULT_YOLO_EXPANDED_METRICS = Path("models/yolo/crack_seg_expanded/metrics.json")
-PRIOR_YOLO_SEG_BASELINE = {"mask_map50": 0.1853, "mask_map": 0.0389}
+DEFAULT_MANIFEST = Path("data/processed/crack_seg_expanded/manifest.jsonl")
+
+
+def seed_everything(seed: int = SEED) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.backends.mps.is_available():
+        torch.mps.manual_seed(seed)
+
+
+def require_mps(device: str = "mps") -> str:
+    normalized = device.lower()
+    if normalized != "mps":
+        raise RuntimeError("Dense crack segmentation training/evaluation requires MPS. Pass --device mps.")
+    if not torch.backends.mps.is_available():
+        raise RuntimeError("Apple MPS is not available; refusing to silently fall back to CPU.")
+    return "mps"
 
 
 @dataclass(frozen=True)
@@ -402,7 +417,6 @@ def evaluate_seg_head(
     device: str = "mps",
     render_examples: bool = True,
     examples_dir: Path = Path("reports/examples"),
-    yolo_weights: Path | None = None,
     compare_classical: bool = True,
 ) -> dict[str, Any]:
     require_mps(device)
@@ -458,14 +472,6 @@ def evaluate_seg_head(
     test_records = [record for record in eval_records if record.split == "test"]
     if compare_classical and test_records:
         comparison["classical"] = evaluate_classical_segmenter(test_records, image_size=image_size)
-    if yolo_weights is not None and yolo_weights.exists() and test_records:
-        comparison["yolo_seg_expanded"] = evaluate_yolo_segmenter(
-            test_records,
-            weights=yolo_weights,
-            image_size=image_size,
-            device=device,
-        )
-    yolo_expanded_metrics = _load_yolo_expanded_metrics()
 
     example_paths: list[str] = []
     if render_examples:
@@ -484,7 +490,6 @@ def evaluate_seg_head(
         "val": split_metrics["val"],
         "test": split_metrics["test"],
         "comparison": comparison,
-        "yolo_seg_expanded_metrics": yolo_expanded_metrics,
         "example_paths": example_paths,
     }
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
@@ -628,37 +633,6 @@ def evaluate_classical_segmenter(records: list[SegRecord], *, image_size: int = 
         stats.update(torch.from_numpy(pred), torch.from_numpy(target))
     metrics = stats.metrics()
     metrics["count"] = len(records)
-    return metrics
-
-
-def evaluate_yolo_segmenter(
-    records: list[SegRecord],
-    *,
-    weights: Path,
-    image_size: int = DEFAULT_IMAGE_SIZE,
-    device: str = "mps",
-) -> dict[str, float | int]:
-    require_mps(device)
-    from ultralytics import YOLO
-
-    model = YOLO(str(weights))
-    stats = PixelStats()
-    image_paths = [str(record.image_path) for record in records]
-    results = model.predict(source=image_paths, imgsz=image_size, device="mps", verbose=False, stream=True)
-    for record, result in tqdm(zip(records, results, strict=True), total=len(records), desc="YOLO crack eval", unit="image"):
-        with Image.open(record.mask_path) as mask_image:
-            target = np.asarray(mask_image.convert("L").resize((image_size, image_size), Image.Resampling.NEAREST)) > 0
-        pred = np.zeros((image_size, image_size), dtype=bool)
-        if result.masks is not None and result.masks.data is not None and len(result.masks.data) > 0:
-            mask_tensor = result.masks.data.detach().to("mps").float().unsqueeze(1)
-            if tuple(mask_tensor.shape[-2:]) != (image_size, image_size):
-                mask_tensor = F.interpolate(mask_tensor, size=(image_size, image_size), mode="bilinear", align_corners=False)
-            pred_tensor = mask_tensor.squeeze(1).amax(dim=0) >= 0.5
-            pred = pred_tensor.detach().cpu().numpy().astype(bool)
-        stats.update(torch.from_numpy(pred), torch.from_numpy(target))
-    metrics = stats.metrics()
-    metrics["count"] = len(records)
-    metrics["weights"] = str(weights)
     return metrics
 
 
@@ -984,33 +958,6 @@ def _markdown_report(result: dict[str, Any]) -> str:
             )
         )
     example_lines = "\n".join(f"- `{path}`" for path in result.get("example_paths", [])) or "- Not rendered."
-    yolo_metrics = result.get("yolo_seg_expanded_metrics") or {}
-    if yolo_metrics:
-        onnx_status = "not exported"
-        if yolo_metrics.get("onnx"):
-            onnx_status = f"`{yolo_metrics['onnx']}`"
-        elif yolo_metrics.get("onnx_error"):
-            onnx_status = f"export failed: {str(yolo_metrics['onnx_error']).replace('|', '/')[:90]}"
-        yolo_section = (
-            "## YOLO-Seg Expanded mAP\n\n"
-            "| Model | Mask mAP50 | Mask mAP50-95 | vs prior mAP50 | vs prior mAP50-95 | ONNX |\n"
-            "| --- | ---: | ---: | ---: | ---: | --- |\n"
-            "| YOLO11n-seg expanded | {mask_map50:.4f} | {mask_map:.4f} | {delta50:+.4f} | "
-            "{delta5095:+.4f} | {onnx} |\n\n"
-            "Prior baseline: YOLO11n-seg mask mAP50 `0.1853` / mAP50-95 `0.0389`.\n"
-        ).format(
-            mask_map50=float(yolo_metrics.get("mask_map50", 0.0)),
-            mask_map=float(yolo_metrics.get("mask_map", 0.0)),
-            delta50=float(yolo_metrics.get("mask_map50", 0.0)) - PRIOR_YOLO_SEG_BASELINE["mask_map50"],
-            delta5095=float(yolo_metrics.get("mask_map", 0.0)) - PRIOR_YOLO_SEG_BASELINE["mask_map"],
-            onnx=onnx_status,
-        )
-    else:
-        yolo_section = (
-            "## YOLO-Seg Expanded mAP\n\n"
-            "Pending until `models/yolo/crack_seg_expanded/metrics.json` is written. Prior baseline: "
-            "YOLO11n-seg mask mAP50 `0.1853` / mAP50-95 `0.0389`.\n"
-        )
     return f"""# Crack Segmentation and Measurement
 
 Phase 7c added full-frame runway/pavement analysis and pixel-level crack geometry. Track 2 replaces the default pixel mask with a learned frozen-DINOv3 dense-token segmentation head when `models/crack_seg_head.pt` is present.
@@ -1031,15 +978,13 @@ Chosen threshold: `{result["threshold"]:.3f}` (max Dice on validation).
 
 ## Common Test Comparison
 
-Pixel metrics below use the common held-out `data/processed/yolo_seg_expanded` test split with masks resized to 512 px.
+Pixel metrics below use the held-out split from `{result["manifest"]}` when present, otherwise the deterministic CrackAirport + CrackForest raw-data split, with masks resized to 512 px.
 
 | Segmenter | IoU | Dice/F1 | Precision | Recall | Images |
 | --- | ---: | ---: | ---: | ---: | ---: |
 {chr(10).join(comparison_rows) if comparison_rows else "| Not run | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0 |"}
 
-Verdict: the DINOv3 dense head is the selected default because it is trained directly on pixel masks from CrackAirport and CrackForest and produces a full-resolution mask that keeps the existing area, length, and width measurement path intact. YOLO-seg-expanded remains the mobile/export model; the classical method remains the no-checkpoint fallback.
-
-{yolo_section}
+Verdict: the DINOv3 dense head is the selected default because it is trained directly on pixel masks from CrackAirport and CrackForest and produces a full-resolution mask that keeps the existing area, length, and width measurement path intact. The classical method remains the no-checkpoint fallback.
 
 ## Example Overlays
 
@@ -1053,9 +998,3 @@ License-safe CrackAirport examples, left to right: original, ground-truth mask, 
 - `tarmac analyze --region full --crack-segmentation`: `crackseg/frame_*_crackseg.png` plus geometry columns in `results.parquet`.
 - `tarmac report`: crack geometry overlay gallery and measurement table.
 """
-
-
-def _load_yolo_expanded_metrics(path: Path = DEFAULT_YOLO_EXPANDED_METRICS) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text())

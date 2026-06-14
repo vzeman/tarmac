@@ -74,8 +74,8 @@ def download_crackairport(output_dir: Path = Path("data/raw/crackairport")) -> C
     extraction; paths whose directory/name contains mask-like tokens are treated
     as masks, and the remaining image files are candidate source images. Pairing
     is by normalized stem after removing common suffixes such as ``_mask`` and
-    ``_label``. A stable ``pairs.jsonl`` index is written for downstream YOLO
-    conversion.
+    ``_label``. A stable ``pairs.jsonl`` index is written for downstream crack
+    segmentation training and evaluation.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     archives_dir = output_dir / "archives"

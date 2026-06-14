@@ -7,27 +7,41 @@ from pathlib import Path
 
 from PIL import Image
 
+from tarmac.crack.seg_head import DEFAULT_MANIFEST
 from tarmac.crack.segment import segment_cracks
+from tarmac.datasets.crackairport import find_crackairport_pairs
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _find_crackairport_image() -> Path:
-    manifest = ROOT / "data/processed/yolo_seg_expanded/manifest.jsonl"
-    if not manifest.exists():
-        raise AssertionError(f"missing manifest: {manifest}")
-    with manifest.open() as handle:
-        for line in handle:
-            row = json.loads(line)
-            if row.get("source_dataset") != "crackairport":
-                continue
-            image_path = Path(row.get("source_image") or row.get("image_path", ""))
-            if not image_path.is_absolute():
-                image_path = ROOT / image_path
-            if image_path.exists():
-                return image_path
-    raise AssertionError("no CrackAirport image found in expanded segmentation manifest")
+    manifest = ROOT / DEFAULT_MANIFEST
+    if manifest.exists():
+        with manifest.open() as handle:
+            for line in handle:
+                row = json.loads(line)
+                if row.get("source_dataset") != "crackairport":
+                    continue
+                image_path = Path(row.get("source_image") or row.get("image_path", ""))
+                if not image_path.is_absolute():
+                    image_path = ROOT / image_path
+                if image_path.exists():
+                    return image_path
+
+    pairs_path = ROOT / "data/raw/crackairport/pairs.jsonl"
+    if pairs_path.exists():
+        with pairs_path.open() as handle:
+            for line in handle:
+                row = json.loads(line)
+                image_path = Path(row["image_path"])
+                if image_path.exists():
+                    return image_path
+
+    pairs = find_crackairport_pairs(ROOT / "data/raw/crackairport/_extracted")
+    if pairs:
+        return pairs[0][0]
+    raise AssertionError("no CrackAirport image found for segmentation-head smoke")
 
 
 def main() -> None:
