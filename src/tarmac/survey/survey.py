@@ -18,7 +18,7 @@ from rich.console import Console
 from rich.table import Table
 from tqdm.auto import tqdm
 
-from tarmac.crack.segment import segment_cracks
+from tarmac.crack.segment import render_crack_overlay, segment_cracks
 from tarmac.defect import DEFECT_LABELS
 from tarmac.embedding.embedder import HFBackboneEmbedder
 from tarmac.inference.analyze import (
@@ -116,7 +116,7 @@ def run_survey(
         min_crack_area=float(min_crack_area),
         min_crack_length_px=int(min_crack_length_px),
     )
-    out_dir = (out_dir or Path("runs") / f"survey_{video_path.stem}").expanduser().resolve()
+    out_dir = (out_dir or Path("runs") / video_path.stem).expanduser().resolve()
     _prepare_output_dir(out_dir)
 
     duration = video_duration(video_path)
@@ -168,6 +168,8 @@ def run_survey(
     pending: list[FrameSample] = []
     sample_records: list[dict[str, Any]] = []
     problem_records: list[dict[str, Any]] = []
+    frames_dir = out_dir / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
     problem_dir = out_dir / "problem_images"
     problem_dir.mkdir(parents=True, exist_ok=True)
 
@@ -193,6 +195,7 @@ def run_survey(
                 telemetry=telemetry,
                 quality_threshold=quality_threshold,
                 crack_confirmation=crack_confirmation,
+                frames_dir=frames_dir,
                 problem_dir=problem_dir,
             )
             sample_records.extend(records)
@@ -212,6 +215,7 @@ def run_survey(
             telemetry=telemetry,
             quality_threshold=quality_threshold,
             crack_confirmation=crack_confirmation,
+            frames_dir=frames_dir,
             problem_dir=problem_dir,
         )
         sample_records.extend(records)
@@ -378,6 +382,7 @@ def _process_batch(
     telemetry: pd.DataFrame,
     quality_threshold: int,
     crack_confirmation: CrackConfirmationConfig,
+    frames_dir: Path,
     problem_dir: Path,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rows, _tile_rows = analyze_frames(
@@ -402,16 +407,24 @@ def _process_batch(
     )
     records: list[dict[str, Any]] = []
     problems: list[dict[str, Any]] = []
-    for local_index, (frame, row) in enumerate(zip(frames, rows, strict=True)):
+    for frame, row in zip(frames, rows, strict=True):
         row = dict(row)
         row["frame_index"] = frame.index
+        frame_rel = _save_frame_thumbnail(
+            source=frame.frame_path,
+            frames_dir=frames_dir,
+            sample_index=frame.index,
+            timestamp_s=frame.timestamp_s,
+        )
         telemetry_row = interpolate_track(telemetry, frame.timestamp_s)
+        problem_stem = _problem_stem(frame.index, frame.timestamp_s)
         confirmation = _confirm_crack_for_image(
             frame.frame_path,
             row=row,
             context=context,
             config=crack_confirmation,
             force_segmentation=False,
+            output_overlay_path=problem_dir / f"{problem_stem}_marked.jpg",
         )
         record = _sample_record(
             row=row,
@@ -419,6 +432,7 @@ def _process_batch(
             telemetry_row=telemetry_row,
             quality_threshold=quality_threshold,
             crack_confirmation=confirmation,
+            frame_image=frame_rel,
             region=context.region,
         )
         if record["is_problem"]:
@@ -443,6 +457,7 @@ def _sample_record(
     telemetry_row: dict[str, Any],
     quality_threshold: int,
     crack_confirmation: dict[str, Any],
+    frame_image: str,
     region: str,
 ) -> dict[str, Any]:
     quality = _maybe_int(row.get("predicted_quality"))
@@ -490,13 +505,18 @@ def _sample_record(
         "crack_components": _maybe_int(crack_confirmation.get("crack_components")) or 0,
         "crack_segmenter": str(crack_confirmation.get("crack_segmenter", "")),
         "crack_confirmation_reason": str(crack_confirmation.get("crack_confirmation_reason", "")),
+        "crack_overlay_image": str(crack_confirmation.get("crack_overlay_image", "") or ""),
         "structural_defects": json.dumps(structural_defects),
         "issues": json.dumps(issues),
         "is_problem": is_problem,
+        "source_path": str(row.get("source_path") or ""),
+        "frame_image": frame_image,
+        "frame_thumbnail": frame_image,
         "problem_image": "",
         "thumbnail_image": "",
         "region": region,
         "route_notice": str(telemetry_row.get("route_notice") or ROUTE_NOTICE),
+        "embedding": _embedding_value(row.get("embedding")),
         **assessment,
     }
     for label in DEFECT_LABELS:
@@ -513,6 +533,7 @@ def _confirm_crack_for_image(
     context: SurveyModelContext,
     config: CrackConfirmationConfig,
     force_segmentation: bool,
+    output_overlay_path: Path | None = None,
 ) -> dict[str, Any]:
     classifier_prob = _max_tile_crack_probability(row)
     candidate = bool(classifier_prob is not None and classifier_prob >= config.crack_prob)
@@ -526,8 +547,9 @@ def _confirm_crack_for_image(
         return confirmation
 
     with Image.open(image_path) as image:
+        rgb_image = image.convert("RGB")
         result = segment_cracks(
-            image,
+            rgb_image,
             crack_head=context.crack_detector,
             embedder=context.embedder,
             mm_per_pixel=None,
@@ -553,6 +575,10 @@ def _confirm_crack_for_image(
         reason = "seg_area_below_threshold"
     else:
         reason = "component_length_below_threshold"
+    overlay_rel = ""
+    if confirmed and output_overlay_path is not None:
+        render_crack_overlay(rgb_image, result.mask, measurements, output_overlay_path)
+        overlay_rel = str(output_overlay_path.relative_to(context.out_dir))
     confirmation.update(
         {
             "crack_confirmed": confirmed,
@@ -564,6 +590,7 @@ def _confirm_crack_for_image(
             "crack_components": int(measurements.get("n_components", 0) or 0),
             "crack_segmenter": result.segmenter,
             "crack_confirmation_reason": reason,
+            "crack_overlay_image": overlay_rel,
         }
     )
     return confirmation
@@ -590,6 +617,7 @@ def _empty_crack_confirmation(
         "crack_components": 0,
         "crack_segmenter": "",
         "crack_confirmation_reason": "not_evaluated",
+        "crack_overlay_image": "",
     }
 
 
@@ -664,7 +692,7 @@ def _save_problem_assets(
     sample_index: int,
     timestamp_s: float,
 ) -> tuple[str, str]:
-    stem = f"problem_{sample_index:06d}_t{timestamp_s:010.3f}"
+    stem = _problem_stem(sample_index, timestamp_s)
     image_path = problem_dir / f"{stem}.jpg"
     thumb_path = problem_dir / f"{stem}_thumb.jpg"
     shutil.copy2(source, image_path)
@@ -673,6 +701,26 @@ def _save_problem_assets(
         thumb.thumbnail((360, 240))
         thumb.save(thumb_path, format="JPEG", quality=82)
     return f"problem_images/{image_path.name}", f"problem_images/{thumb_path.name}"
+
+
+def _save_frame_thumbnail(
+    *,
+    source: Path,
+    frames_dir: Path,
+    sample_index: int,
+    timestamp_s: float,
+) -> str:
+    stem = f"frame_{sample_index:06d}_t{timestamp_s:010.3f}"
+    image_path = frames_dir / f"{stem}.jpg"
+    with Image.open(source) as image:
+        thumb = image.convert("RGB")
+        thumb.thumbnail((256, 256))
+        thumb.save(image_path, format="JPEG", quality=78, optimize=True)
+    return f"frames/{image_path.name}"
+
+
+def _problem_stem(sample_index: int, timestamp_s: float) -> str:
+    return f"problem_{sample_index:06d}_t{timestamp_s:010.3f}"
 
 
 def _write_geojson(
@@ -717,9 +765,12 @@ def _write_geojson(
                     "issues": _json_list(getattr(row, "issues", "[]")),
                     "problem_image": str(getattr(row, "problem_image", "")),
                     "thumbnail_image": str(getattr(row, "thumbnail_image", "")),
+                    "frame_image": str(getattr(row, "frame_image", "")),
+                    "crack_overlay_image": str(getattr(row, "crack_overlay_image", "")),
                     "crack_confirmed": bool(getattr(row, "crack_confirmed", False)),
                     "crack_classifier_prob": _maybe_float(getattr(row, "crack_classifier_prob", None)),
                     "crack_area_pct": _maybe_float(getattr(row, "crack_area_pct", None)),
+                    "crack_length_px": _maybe_int(getattr(row, "crack_length_px", None)),
                     "crack_max_component_length_px": _maybe_int(
                         getattr(row, "crack_max_component_length_px", None)
                     ),
@@ -819,8 +870,11 @@ def _build_summary(
         "samples_parquet": str(samples_path),
         "problems_parquet": str(problems_path),
         "track_geojson": str(track_path),
+        "frames_dir": str(out_dir / "frames"),
         "problem_images_dir": str(out_dir / "problem_images"),
         "samples_analyzed": int(len(samples)),
+        "frame_thumbnail_count": int(samples["frame_image"].astype(bool).sum()) if "frame_image" in samples else 0,
+        "embedding_count": int(samples["embedding"].map(lambda value: len(value) > 0).sum()) if "embedding" in samples else 0,
         "problems_found": int(len(problems)),
         "confirmed_crack_count": crack_count,
         "mean_speed_kmh": mean_speed_kmh,
@@ -923,6 +977,7 @@ def confirm_survey_problems(
                     context=context,
                     config=config,
                     force_segmentation=True,
+                    output_overlay_path=image_path.with_name(f"{image_path.stem}_marked.jpg"),
                 )
                 confirmation_rows.append(
                     _confirmed_problem_record(
@@ -1068,7 +1123,7 @@ def _problem_preview(problems: pd.DataFrame, *, limit: int = 8) -> list[dict[str
 
 def _prepare_output_dir(out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    for child in ["problem_images", "_tmp_frames", "_tmp_thumbnails", "_tmp_imu"]:
+    for child in ["frames", "problem_images", "_tmp_frames", "_tmp_thumbnails", "_tmp_imu"]:
         path = out_dir / child
         if path.exists():
             shutil.rmtree(path)
@@ -1078,9 +1133,13 @@ def _prepare_output_dir(out_dir: Path) -> None:
         "track.geojson",
         "samples.parquet",
         "problems.parquet",
+        "problem_confirmations.parquet",
+        "problems_confirmed.parquet",
         "summary.json",
         "map.html",
         "problems_table.html",
+        "cluster_scatter.html",
+        "speed_chart.html",
         "index.html",
     ]:
         path = out_dir / filename
@@ -1155,6 +1214,13 @@ def _finite_or_none(value: Any) -> float | None:
 def _finite_or_zero(value: Any) -> float:
     number = _maybe_float(value)
     return number if number is not None else 0.0
+
+
+def _embedding_value(value: Any) -> np.ndarray:
+    if value is None:
+        return np.array([], dtype=np.float32)
+    array = np.asarray(value, dtype=np.float32).reshape(-1)
+    return array
 
 
 def _maybe_bool(value: Any) -> bool:

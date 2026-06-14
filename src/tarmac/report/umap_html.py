@@ -253,15 +253,26 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sa
 .tarmac-image-link { cursor: zoom-in; }
 .img-dialog-backdrop { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.58); z-index: 10000; padding: 24px; }
 .img-dialog-backdrop.open { display: flex; }
-.img-dialog { width: min(760px, 96vw); max-height: 92vh; overflow: auto; background: #fff; border-radius: 8px; box-shadow: 0 18px 60px rgba(0,0,0,0.35); }
+.img-dialog { width: 90vw; height: 90vh; max-width: 1600px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; background: #fff; border-radius: 8px; box-shadow: 0 18px 60px rgba(0,0,0,0.35); }
 .img-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #dde2e7; }
 .img-dialog h2 { margin: 0; font-size: 18px; line-height: 1.3; overflow-wrap: anywhere; }
 .img-dialog button { border: 0; background: transparent; font-size: 28px; line-height: 1; cursor: pointer; color: #34495e; }
-.img-dialog-body { padding: 16px; }
-.img-dialog-body img { display: block; max-width: 100%; max-height: 512px; margin: 0 auto 14px; object-fit: contain; background: #f2f4f7; }
+.img-dialog-body { padding: 16px; overflow: auto; }
+.img-dialog-images { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; margin-bottom: 14px; }
+.img-dialog-images.single { grid-template-columns: minmax(0, 1fr); }
+.img-dialog-figure { margin: 0; min-width: 0; }
+.img-dialog-figure figcaption { margin: 0 0 6px; font-weight: 700; color: #374151; }
+.img-dialog-body img { display: block; width: 100%; max-height: calc(90vh - 230px); object-fit: contain; background: #f2f4f7; border: 1px solid #d8dee5; }
+.img-dialog-note { margin: 0 0 14px; color: #4b5563; font-weight: 700; }
 .img-dialog-meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 12px; font-size: 14px; }
 .img-dialog-meta dt { font-weight: 700; color: #4b5563; }
 .img-dialog-meta dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 820px) {
+  .img-dialog-backdrop { padding: 10px; }
+  .img-dialog { width: 94vw; height: 92vh; }
+  .img-dialog-images { grid-template-columns: minmax(0, 1fr); }
+  .img-dialog-body img { max-height: 46vh; }
+}
 </style>"""
 
 
@@ -275,12 +286,28 @@ def dialog_html(*, include_style: bool = True) -> str:
       <button id="img-dialog-close" type="button" aria-label="Close">&times;</button>
     </header>
     <div class="img-dialog-body">
-      <img id="img-dialog-image" alt="">
+      <div id="img-dialog-images" class="img-dialog-images single">
+        <figure class="img-dialog-figure">
+          <figcaption>Original frame</figcaption>
+          <img id="img-dialog-image" alt="">
+        </figure>
+        <figure id="img-dialog-marked-pane" class="img-dialog-figure" hidden>
+          <figcaption>Crack-marked image</figcaption>
+          <img id="img-dialog-marked-image" alt="">
+        </figure>
+      </div>
+      <p id="img-dialog-crack-note" class="img-dialog-note"></p>
       <dl class="img-dialog-meta">
+        <dt>Timestamp</dt><dd id="img-dialog-timestamp"></dd>
+        <dt>Speed</dt><dd id="img-dialog-speed"></dd>
+        <dt>GPS</dt><dd id="img-dialog-gps"></dd>
         <dt>Filename</dt><dd id="img-dialog-filename"></dd>
         <dt>Quality</dt><dd id="img-dialog-quality"></dd>
         <dt>Surface type</dt><dd id="img-dialog-surface"></dd>
         <dt>Confidence</dt><dd id="img-dialog-confidence"></dd>
+        <dt>Issues</dt><dd id="img-dialog-issues"></dd>
+        <dt>Crack area</dt><dd id="img-dialog-crack-area"></dd>
+        <dt>Crack length</dt><dd id="img-dialog-crack-length"></dd>
         <dt>Path</dt><dd id="img-dialog-path"></dd>
       </dl>
     </div>
@@ -310,10 +337,28 @@ function tarmacDialogText(id, value) {
   var element = document.getElementById(id);
   if (element) element.textContent = value || "";
 }
+function tarmacBool(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") return ["1", "true", "yes", "on"].indexOf(value.toLowerCase()) !== -1;
+  return false;
+}
+function tarmacParseDialogPayload(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    return null;
+  }
+}
 function tarmacOpenImageDialog(data) {
   if (!data) return;
   var dialog = document.getElementById("img-dialog");
   var image = document.getElementById("img-dialog-image");
+  var imageGrid = document.getElementById("img-dialog-images");
+  var markedPane = document.getElementById("img-dialog-marked-pane");
+  var markedImage = document.getElementById("img-dialog-marked-image");
+  var crackNote = document.getElementById("img-dialog-crack-note");
   if (!dialog || !image) return;
   var isArray = Array.isArray(data);
   var kind = isArray ? (data[0] || "") : (data.kind || "");
@@ -323,30 +368,64 @@ function tarmacOpenImageDialog(data) {
   var quality = isArray ? (data[4] || "") : (data.quality || "");
   var confidence = isArray ? (data[5] || "") : (data.confidence || "");
   var filename = isArray ? (data[6] || path) : (data.filename || path);
+  var timestamp = isArray && kind === "survey" ? (data[7] || "") : (data.timestamp || "");
   var fileUrl = isArray ? (data[8] || "") : (data.fileUrl || "");
+  var markedSrc = isArray && kind === "survey" ? (data[9] || "") : (data.markedSrc || data.markedUrl || "");
+  var speedKmh = isArray && kind === "survey" ? (data[10] || "") : (data.speedKmh || "");
+  var lat = isArray && kind === "survey" ? (data[11] || "") : (data.lat || "");
+  var lon = isArray && kind === "survey" ? (data[12] || "") : (data.lon || "");
+  var issues = isArray && kind === "survey" ? (data[13] || "") : (data.issues || "");
+  var crackAreaPct = isArray && kind === "survey" ? (data[14] || "") : (data.crackAreaPct || "");
+  var crackLengthPx = isArray && kind === "survey" ? (data[15] || "") : (data.crackLengthPx || "");
+  var crackDetected = isArray && kind === "survey" ? tarmacBool(data[16]) : tarmacBool(data.crackDetected);
+  var crackSegmenter = isArray && kind === "survey" ? (data[17] || "") : (data.crackSegmenter || "");
+  var noCracksNote = isArray && kind === "survey" ? (data[18] || "") : (data.noCracksNote || "");
   var displayPath = fileUrl || src || path;
   image.src = src || fileUrl || displayPath;
   image.alt = filename;
+  if (markedSrc && markedPane && markedImage && imageGrid) {
+    markedImage.src = markedSrc;
+    markedImage.alt = filename + " crack-marked image";
+    markedPane.hidden = false;
+    imageGrid.classList.remove("single");
+    if (crackNote) crackNote.textContent = "";
+  } else {
+    if (markedPane) markedPane.hidden = true;
+    if (markedImage) markedImage.removeAttribute("src");
+    if (imageGrid) imageGrid.classList.add("single");
+    if (crackNote) {
+      crackNote.textContent = crackDetected ? "crack-marked image unavailable" : (noCracksNote || "");
+    }
+  }
   tarmacDialogText("img-dialog-title", filename);
+  tarmacDialogText("img-dialog-timestamp", timestamp);
+  tarmacDialogText("img-dialog-speed", speedKmh ? speedKmh + " km/h" : "");
+  tarmacDialogText("img-dialog-gps", lat || lon ? lat + ", " + lon : "");
   tarmacDialogText("img-dialog-filename", filename);
   tarmacDialogText("img-dialog-quality", quality ? "Q" + quality : "");
   tarmacDialogText("img-dialog-surface", surface);
   tarmacDialogText("img-dialog-confidence", confidence || (kind === "reference" ? "reference point" : ""));
+  tarmacDialogText("img-dialog-issues", issues);
+  tarmacDialogText("img-dialog-crack-area", crackAreaPct ? crackAreaPct + "%" : "");
+  tarmacDialogText("img-dialog-crack-length", crackLengthPx ? crackLengthPx + " px" + (crackSegmenter ? " · " + crackSegmenter : "") : "");
   tarmacDialogText("img-dialog-path", displayPath || path);
   dialog.classList.add("open");
 }
 function tarmacCloseImageDialog() {
   var dialog = document.getElementById("img-dialog");
   var image = document.getElementById("img-dialog-image");
+  var markedImage = document.getElementById("img-dialog-marked-image");
   if (dialog) dialog.classList.remove("open");
   if (image) image.removeAttribute("src");
+  if (markedImage) markedImage.removeAttribute("src");
 }
 document.addEventListener("click", function(event) {
   var target = event.target;
   var link = target && target.closest ? target.closest(".tarmac-image-link") : null;
   if (link) {
     event.preventDefault();
-    tarmacOpenImageDialog({
+    var payload = tarmacParseDialogPayload(link.getAttribute("data-dialog"));
+    tarmacOpenImageDialog(payload || {
       kind: link.getAttribute("data-kind") || "",
       src: link.getAttribute("data-src") || link.href,
       fileUrl: link.href,
@@ -356,6 +435,11 @@ document.addEventListener("click", function(event) {
       surface: link.getAttribute("data-surface") || "",
       confidence: link.getAttribute("data-confidence") || ""
     });
+  }
+  var row = target && target.closest ? target.closest(".tarmac-dialog-row") : null;
+  if (row && !link) {
+    var rowPayload = tarmacParseDialogPayload(row.getAttribute("data-dialog"));
+    if (rowPayload) tarmacOpenImageDialog(rowPayload);
   }
   if (target && target.id === "img-dialog") tarmacCloseImageDialog();
   if (target && target.id === "img-dialog-close") tarmacCloseImageDialog();

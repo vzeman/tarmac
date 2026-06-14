@@ -787,7 +787,12 @@ def assess(
 @app.command("survey")
 def survey_cmd(
     video: Path = typer.Argument(..., help="GPS/IMU dashcam-style video to survey."),
-    out: Path | None = typer.Option(None, "--out", "-o", help="Output survey run directory."),
+    out: Path | None = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help="Output survey run directory. Defaults to runs/<video-basename>.",
+    ),
     gps_sidecar: Path | None = typer.Option(
         None,
         "--gps-sidecar",
