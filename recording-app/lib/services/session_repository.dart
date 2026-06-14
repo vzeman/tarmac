@@ -41,12 +41,24 @@ class SessionRepository {
     final sessions = await listSessions();
     sessions.removeWhere((session) => session.id == summary.id);
     sessions.insert(0, summary);
-    final file = await _indexFile();
-    await file.writeAsString(
-      const JsonEncoder.withIndent(
-        '  ',
-      ).convert(sessions.map((session) => session.toJson()).toList()),
-    );
+    await _writeIndex(sessions);
+  }
+
+  Future<void> deleteSession(SessionSummary summary) async {
+    final sessions = await listSessions();
+    sessions.removeWhere((session) => session.id == summary.id);
+    await _writeIndex(sessions);
+    await _deleteSessionArtifacts(summary);
+  }
+
+  Future<void> deleteSessions(Iterable<SessionSummary> summaries) async {
+    final ids = summaries.map((summary) => summary.id).toSet();
+    final sessions = await listSessions();
+    sessions.removeWhere((session) => ids.contains(session.id));
+    await _writeIndex(sessions);
+    for (final summary in summaries) {
+      await _deleteSessionArtifacts(summary);
+    }
   }
 
   Future<List<TrackPoint>> loadTrackPoints(SessionSummary summary) async {
@@ -89,6 +101,42 @@ class SessionRepository {
   Future<File> _indexFile() async {
     final root = await storageService.recordingsRoot();
     return File('${root.path}/sessions_index.json');
+  }
+
+  Future<void> _writeIndex(List<SessionSummary> sessions) async {
+    final file = await _indexFile();
+    await file.writeAsString(
+      const JsonEncoder.withIndent(
+        '  ',
+      ).convert(sessions.map((session) => session.toJson()).toList()),
+    );
+  }
+
+  Future<void> _deleteSessionArtifacts(SessionSummary summary) async {
+    final root = await storageService.recordingsRoot();
+    final directory = Directory(summary.directoryPath);
+    if (_isInsideRoot(root, directory) && await directory.exists()) {
+      await directory.delete(recursive: true);
+      return;
+    }
+
+    final paths = <String>{
+      summary.videoPath,
+      summary.sidecarPath,
+      summary.gpxPath,
+    };
+    for (final path in paths.where((path) => path.isNotEmpty)) {
+      final file = File(path);
+      if (_isInsideRoot(root, file) && await file.exists()) {
+        await file.delete();
+      }
+    }
+  }
+
+  bool _isInsideRoot(Directory root, FileSystemEntity entity) {
+    final rootPath = '${root.absolute.path}${Platform.pathSeparator}';
+    final path = entity.absolute.path;
+    return path == root.absolute.path || path.startsWith(rootPath);
   }
 
   List<TrackPoint> _fallbackPoints(SessionSummary summary) {

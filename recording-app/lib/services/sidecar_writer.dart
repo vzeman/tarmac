@@ -252,6 +252,12 @@ class SidecarWriter {
       'mode': actualMode.name,
       'requested_capture_mode': settings.captureMode.name,
       'settings': settings.toJson(),
+      'calibration': {
+        'is_set': settings.mountCalibrationSet,
+        'mount_height_m': settings.mountHeightM,
+        'mount_tilt_deg': settings.mountTiltDeg,
+        'lens_profile': settings.lensProfile.name,
+      },
       'segment_index': 1,
       'start_utc': startUtc.toIso8601String(),
       'end_utc': endUtc.toIso8601String(),

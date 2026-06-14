@@ -5,15 +5,21 @@ void main() {
   test('default settings match M1 scaffold requirements', () {
     final settings = AppSettings.defaults();
 
-    expect(settings.frameSpacingM, 3);
-    expect(settings.maxFps, 8);
+    expect(settings.frameSpacingM, 1);
+    expect(settings.maxFps, 30);
     expect(settings.minFps, 1);
     expect(settings.pauseSpeedKmh, 2);
     expect(settings.pauseDebounceS, 3);
-    expect(settings.captureMode, CaptureMode.adaptive);
+    expect(settings.captureMode, CaptureMode.continuous);
     expect(settings.maxSegmentGb, 10);
     expect(settings.storageLocation, StorageLocation.auto);
     expect(settings.keepScreenOn, isTrue);
+    expect(settings.displayTheme, DisplayTheme.sunlight);
+    expect(settings.autoDimWhileRecording, isFalse);
+    expect(settings.mountCalibrationSet, isFalse);
+    expect(settings.mountHeightM, 1.4);
+    expect(settings.mountTiltDeg, 0);
+    expect(settings.lensProfile, LensProfile.wide);
   });
 
   test('settings round trip through json', () {
@@ -22,6 +28,12 @@ void main() {
       resolution: CaptureResolution.p2160,
       codec: CaptureCodec.hevc,
       units: UnitSystem.imperial,
+      displayTheme: DisplayTheme.night,
+      autoDimWhileRecording: true,
+      mountCalibrationSet: true,
+      mountHeightM: 1.7,
+      mountTiltDeg: -8,
+      lensProfile: LensProfile.ultraWide,
     );
 
     final roundTrip = AppSettings.fromJson(settings.toJson());
@@ -30,5 +42,11 @@ void main() {
     expect(roundTrip.resolution, CaptureResolution.p2160);
     expect(roundTrip.codec, CaptureCodec.hevc);
     expect(roundTrip.units, UnitSystem.imperial);
+    expect(roundTrip.displayTheme, DisplayTheme.night);
+    expect(roundTrip.autoDimWhileRecording, isTrue);
+    expect(roundTrip.mountCalibrationSet, isTrue);
+    expect(roundTrip.mountHeightM, 1.7);
+    expect(roundTrip.mountTiltDeg, -8);
+    expect(roundTrip.lensProfile, LensProfile.ultraWide);
   });
 }

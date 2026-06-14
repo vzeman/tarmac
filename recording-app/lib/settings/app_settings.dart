@@ -8,6 +8,10 @@ enum StorageLocation { auto, internal, external }
 
 enum UnitSystem { metric, imperial }
 
+enum DisplayTheme { sunlight, night }
+
+enum LensProfile { wide, ultraWide, telephoto }
+
 class AppSettings {
   const AppSettings({
     required this.frameSpacingM,
@@ -22,22 +26,34 @@ class AppSettings {
     required this.storageLocation,
     required this.keepScreenOn,
     required this.units,
+    required this.displayTheme,
+    required this.autoDimWhileRecording,
+    required this.mountCalibrationSet,
+    required this.mountHeightM,
+    required this.mountTiltDeg,
+    required this.lensProfile,
   });
 
   factory AppSettings.defaults() {
     return const AppSettings(
-      frameSpacingM: 3,
-      maxFps: 8,
+      frameSpacingM: 1,
+      maxFps: 30,
       minFps: 1,
       pauseSpeedKmh: 2,
       pauseDebounceS: 3,
-      captureMode: CaptureMode.adaptive,
+      captureMode: CaptureMode.continuous,
       resolution: CaptureResolution.p1080,
       codec: CaptureCodec.h264,
       maxSegmentGb: 10,
       storageLocation: StorageLocation.auto,
       keepScreenOn: true,
       units: UnitSystem.metric,
+      displayTheme: DisplayTheme.sunlight,
+      autoDimWhileRecording: false,
+      mountCalibrationSet: false,
+      mountHeightM: 1.4,
+      mountTiltDeg: 0,
+      lensProfile: LensProfile.wide,
     );
   }
 
@@ -53,6 +69,12 @@ class AppSettings {
   final StorageLocation storageLocation;
   final bool keepScreenOn;
   final UnitSystem units;
+  final DisplayTheme displayTheme;
+  final bool autoDimWhileRecording;
+  final bool mountCalibrationSet;
+  final double mountHeightM;
+  final double mountTiltDeg;
+  final LensProfile lensProfile;
 
   int get effectiveContinuousFps {
     return maxFps.clamp(minFps, 60).toInt();
@@ -71,6 +93,12 @@ class AppSettings {
     StorageLocation? storageLocation,
     bool? keepScreenOn,
     UnitSystem? units,
+    DisplayTheme? displayTheme,
+    bool? autoDimWhileRecording,
+    bool? mountCalibrationSet,
+    double? mountHeightM,
+    double? mountTiltDeg,
+    LensProfile? lensProfile,
   }) {
     return AppSettings(
       frameSpacingM: frameSpacingM ?? this.frameSpacingM,
@@ -85,6 +113,13 @@ class AppSettings {
       storageLocation: storageLocation ?? this.storageLocation,
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
       units: units ?? this.units,
+      displayTheme: displayTheme ?? this.displayTheme,
+      autoDimWhileRecording:
+          autoDimWhileRecording ?? this.autoDimWhileRecording,
+      mountCalibrationSet: mountCalibrationSet ?? this.mountCalibrationSet,
+      mountHeightM: mountHeightM ?? this.mountHeightM,
+      mountTiltDeg: mountTiltDeg ?? this.mountTiltDeg,
+      lensProfile: lensProfile ?? this.lensProfile,
     );
   }
 
@@ -102,6 +137,12 @@ class AppSettings {
       'storage_location': storageLocation.name,
       'keep_screen_on': keepScreenOn,
       'units': units.name,
+      'display_theme': displayTheme.name,
+      'auto_dim_while_recording': autoDimWhileRecording,
+      'mount_calibration_set': mountCalibrationSet,
+      'mount_height_m': mountHeightM,
+      'mount_tilt_deg': mountTiltDeg,
+      'lens_profile': lensProfile.name,
     };
   }
 
@@ -143,6 +184,24 @@ class AppSettings {
           ? json['keep_screen_on'] as bool
           : true,
       units: _enumByName(UnitSystem.values, json['units'], defaults.units),
+      displayTheme: _enumByName(
+        DisplayTheme.values,
+        json['display_theme'],
+        defaults.displayTheme,
+      ),
+      autoDimWhileRecording: json['auto_dim_while_recording'] is bool
+          ? json['auto_dim_while_recording'] as bool
+          : defaults.autoDimWhileRecording,
+      mountCalibrationSet: json['mount_calibration_set'] is bool
+          ? json['mount_calibration_set'] as bool
+          : defaults.mountCalibrationSet,
+      mountHeightM: _readDouble(json['mount_height_m'], defaults.mountHeightM),
+      mountTiltDeg: _readDouble(json['mount_tilt_deg'], defaults.mountTiltDeg),
+      lensProfile: _enumByName(
+        LensProfile.values,
+        json['lens_profile'],
+        defaults.lensProfile,
+      ),
     );
   }
 
@@ -231,6 +290,30 @@ extension UnitSystemLabel on UnitSystem {
         return 'Metric';
       case UnitSystem.imperial:
         return 'Imperial';
+    }
+  }
+}
+
+extension DisplayThemeLabel on DisplayTheme {
+  String get label {
+    switch (this) {
+      case DisplayTheme.sunlight:
+        return 'Sunlight';
+      case DisplayTheme.night:
+        return 'Night';
+    }
+  }
+}
+
+extension LensProfileLabel on LensProfile {
+  String get label {
+    switch (this) {
+      case LensProfile.wide:
+        return 'Wide';
+      case LensProfile.ultraWide:
+        return 'Ultra wide';
+      case LensProfile.telephoto:
+        return 'Telephoto';
     }
   }
 }
