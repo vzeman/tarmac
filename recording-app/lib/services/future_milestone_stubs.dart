@@ -3,8 +3,8 @@ class FutureMilestoneStubs {
   // distance-based capture and exact per-frame PTS once native timing lands.
   Future<void> configureAdaptiveDistanceCapture() async {}
 
-  // TODO SPEC M3: Fuse GPS speed and accelerometer movement for stationary
-  // auto-pause with debounce.
+  // Implemented in CaptureSessionController for SPEC M3; keep this hook for
+  // future native sensor-timing calibration.
   Future<void> configureStationaryAutoPause() async {}
 
   // TODO SPEC M4: Route segment writers to iOS security-scoped USB volumes or

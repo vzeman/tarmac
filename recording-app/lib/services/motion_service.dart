@@ -9,7 +9,7 @@ class MotionService {
   final StreamController<ImuSample> _sampleController =
       StreamController<ImuSample>.broadcast();
 
-  StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
+  StreamSubscription<UserAccelerometerEvent>? _accelerometerSubscription;
   StreamSubscription<GyroscopeEvent>? _gyroscopeSubscription;
 
   double _ax = 0;
@@ -24,7 +24,7 @@ class MotionService {
   Future<void> start(RecordingClock clock) async {
     await stop();
     _accelerometerSubscription =
-        accelerometerEventStream(
+        userAccelerometerEventStream(
           samplingPeriod: const Duration(milliseconds: 10),
         ).listen((event) {
           _ax = event.x;

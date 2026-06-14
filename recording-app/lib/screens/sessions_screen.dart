@@ -395,9 +395,9 @@ class _SessionCard extends StatelessWidget {
                               icon: Icons.image_outlined,
                               value: '${session.frameCount} frames',
                             ),
-                            const _SessionFact(
+                            _SessionFact(
                               icon: Icons.movie_creation_outlined,
-                              value: '1 segment',
+                              value: _segmentCountText(session.segmentCount),
                             ),
                             _SessionFact(
                               icon: Icons.storage,
@@ -524,10 +524,10 @@ class SessionDetailScreen extends StatelessWidget {
                           label: 'Frames',
                           value: session.frameCount.toString(),
                         ),
-                        const _SummaryTile(
+                        _SummaryTile(
                           icon: Icons.movie_creation_outlined,
                           label: 'Segments',
-                          value: '1',
+                          value: session.segmentCount.toString(),
                         ),
                         _SummaryTile(
                           icon: Icons.storage,
@@ -601,9 +601,20 @@ class SessionDetailScreen extends StatelessWidget {
                                 : 'External unavailable')
                           : 'Internal',
                     ),
-                    _DetailRow(label: 'Video', value: session.videoPath),
-                    _DetailRow(label: 'Sidecar', value: session.sidecarPath),
-                    _DetailRow(label: 'GPX', value: session.gpxPath),
+                    if (session.manifestPath.isNotEmpty)
+                      _DetailRow(
+                        label: 'Manifest',
+                        value: session.manifestPath,
+                      ),
+                    for (final segment in session.effectiveSegments)
+                      _DetailRow(
+                        label: 'Seg ${segment.index}',
+                        value: [
+                          segment.videoPath,
+                          segment.sidecarPath,
+                          segment.gpxPath,
+                        ].where((path) => path.isNotEmpty).join('\n'),
+                      ),
                   ],
                 );
               },
@@ -980,6 +991,7 @@ String _shareText(
   lines.add(
     'Duration: ${_formatDuration(Duration(milliseconds: session.durationMs))}',
   );
+  lines.add('Segments: ${session.segmentCount}');
   lines.add('Files: ${files.map((file) => file.displayName).join(', ')}');
   return lines.join('\n');
 }
@@ -1076,6 +1088,13 @@ String _deleteSnackText(int count) {
     return 'Deleted session.';
   }
   return 'Deleted $count sessions.';
+}
+
+String _segmentCountText(int count) {
+  if (count == 1) {
+    return '1 segment';
+  }
+  return '$count segments';
 }
 
 double _trackDistance(List<TrackPoint> points) {

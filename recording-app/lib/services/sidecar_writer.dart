@@ -13,14 +13,18 @@ class SidecarWriter {
     required this.sessionDirectory,
     required this.settings,
     required this.actualMode,
+    required this.segmentIndex,
     required this.startUtc,
+    required this.segmentStartPtsMs,
   });
 
   final String sessionId;
   final Directory sessionDirectory;
   final AppSettings settings;
   final CaptureMode actualMode;
+  final int segmentIndex;
   final DateTime startUtc;
+  final int segmentStartPtsMs;
 
   late final File _gpsTempFile;
   late final File _imuTempFile;
@@ -32,7 +36,8 @@ class SidecarWriter {
   GpsSample? firstGps;
   GpsSample? lastGps;
 
-  String get _segmentBase => '${sessionId}_seg001';
+  String get _segmentBase =>
+      '${sessionId}_seg${segmentIndex.toString().padLeft(3, '0')}';
 
   File get sidecarFile =>
       File('${sessionDirectory.path}/$_segmentBase.track.json');
@@ -44,14 +49,18 @@ class SidecarWriter {
     required Directory sessionDirectory,
     required AppSettings settings,
     required CaptureMode actualMode,
+    required int segmentIndex,
     required DateTime startUtc,
+    required int segmentStartPtsMs,
   }) async {
     final writer = SidecarWriter._(
       sessionId: sessionId,
       sessionDirectory: sessionDirectory,
       settings: settings,
       actualMode: actualMode,
+      segmentIndex: segmentIndex,
       startUtc: startUtc,
+      segmentStartPtsMs: segmentStartPtsMs,
     );
     await writer._open();
     return writer;
@@ -65,7 +74,7 @@ class SidecarWriter {
     firstGps ??= sample;
     lastGps = sample;
     gpsSampleCount += 1;
-    sink.writeln(jsonEncode(sample.toJson()));
+    sink.writeln(jsonEncode(_relativeGps(sample).toJson()));
     if (gpsSampleCount % 4 == 0) {
       unawaited(sink.flush());
     }
@@ -77,13 +86,13 @@ class SidecarWriter {
       return;
     }
     imuSampleCount += 1;
-    sink.writeln(jsonEncode(sample.toJson()));
+    sink.writeln(jsonEncode(_relativeImu(sample).toJson()));
     if (imuSampleCount % 240 == 0) {
       unawaited(sink.flush());
     }
   }
 
-  Future<SessionSummary> finalize({
+  Future<SessionSegment> finalize({
     required DateTime endUtc,
     required int durationMs,
     required File videoFile,
@@ -101,12 +110,11 @@ class SidecarWriter {
     await _writeGpx(gpsSamples);
     await _deleteTempFiles();
 
-    final totalBytes = await _directorySize(sessionDirectory);
+    final totalBytes = await _segmentFileBytes(videoFile);
     final start = gpsSamples.isNotEmpty ? gpsSamples.first : firstGps;
     final end = gpsSamples.isNotEmpty ? gpsSamples.last : lastGps;
-    return SessionSummary(
-      id: sessionId,
-      directoryPath: sessionDirectory.path,
+    return SessionSegment(
+      index: segmentIndex,
       videoPath: videoFile.path,
       sidecarPath: sidecarFile.path,
       gpxPath: gpxFile.path,
@@ -117,12 +125,60 @@ class SidecarWriter {
       gpsSampleCount: gpsSampleCount,
       imuSampleCount: imuSampleCount,
       totalBytes: totalBytes,
-      mode: actualMode.name,
       startLat: start?.lat,
       startLon: start?.lon,
       endLat: end?.lat,
       endLon: end?.lon,
     );
+  }
+
+  static Future<File> writeSessionManifest({
+    required SessionSummary summary,
+    required AppSettings settings,
+    required CaptureMode actualMode,
+  }) async {
+    final file = File('${summary.directoryPath}/${summary.id}.session.json');
+    final payload = {
+      'schema': 'roadsurvey.session.v1',
+      'session': {
+        'id': summary.id,
+        'app': {'name': 'RoadSurvey Recorder', 'version': '1.0.0+1'},
+        'device': {
+          'os': Platform.operatingSystem,
+          'os_version': Platform.operatingSystemVersion,
+          'model': null,
+        },
+        'mode': actualMode.name,
+        'requested_capture_mode': settings.captureMode.name,
+        'settings': settings.toJson(),
+        'started_at_utc': summary.startedAtUtc.toIso8601String(),
+        'ended_at_utc': summary.endedAtUtc.toIso8601String(),
+        'duration_ms': summary.durationMs,
+        'frame_count': summary.frameCount,
+        'gps_sample_count': summary.gpsSampleCount,
+        'imu_sample_count': summary.imuSampleCount,
+        'segment_count': summary.segmentCount,
+        'auto_pause': {
+          'enabled': settings.autoPauseEnabled,
+          'pause_speed_kmh': settings.pauseSpeedKmh,
+          'pause_debounce_s': settings.pauseDebounceS,
+          'resume_sensitivity': settings.resumeSensitivity,
+          'resume_motion_variance_threshold':
+              settings.resumeMotionVarianceThreshold,
+          'pause_motion_variance_threshold':
+              settings.pauseMotionVarianceThreshold,
+          'resume_trigger': 'accelerometer_first',
+        },
+      },
+      'segments': [
+        for (final segment in summary.effectiveSegments)
+          segment.toManifestJson(),
+      ],
+    };
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(payload),
+    );
+    return file;
   }
 
   Future<void> discard() async {
@@ -139,6 +195,34 @@ class SidecarWriter {
     );
     _gpsSink = _gpsTempFile.openWrite(mode: FileMode.writeOnlyAppend);
     _imuSink = _imuTempFile.openWrite(mode: FileMode.writeOnlyAppend);
+  }
+
+  GpsSample _relativeGps(GpsSample sample) {
+    return GpsSample(
+      utcMs: sample.utcMs,
+      ptsMs: math.max(0, sample.ptsMs - segmentStartPtsMs),
+      fixUtcMs: sample.fixUtcMs,
+      lat: sample.lat,
+      lon: sample.lon,
+      altM: sample.altM,
+      horizontalAccuracyM: sample.horizontalAccuracyM,
+      verticalAccuracyM: sample.verticalAccuracyM,
+      speedMps: sample.speedMps,
+      headingDeg: sample.headingDeg,
+    );
+  }
+
+  ImuSample _relativeImu(ImuSample sample) {
+    return ImuSample(
+      utcMs: sample.utcMs,
+      ptsMs: math.max(0, sample.ptsMs - segmentStartPtsMs),
+      ax: sample.ax,
+      ay: sample.ay,
+      az: sample.az,
+      gx: sample.gx,
+      gy: sample.gy,
+      gz: sample.gz,
+    );
   }
 
   Future<void> _closeSinks() async {
@@ -252,13 +336,20 @@ class SidecarWriter {
       'mode': actualMode.name,
       'requested_capture_mode': settings.captureMode.name,
       'settings': settings.toJson(),
+      'auto_pause': {
+        'enabled': settings.autoPauseEnabled,
+        'pause_speed_kmh': settings.pauseSpeedKmh,
+        'pause_debounce_s': settings.pauseDebounceS,
+        'resume_sensitivity': settings.resumeSensitivity,
+        'resume_trigger': 'accelerometer_first',
+      },
       'calibration': {
         'is_set': settings.mountCalibrationSet,
         'mount_height_m': settings.mountHeightM,
         'mount_tilt_deg': settings.mountTiltDeg,
         'lens_profile': settings.lensProfile.name,
       },
-      'segment_index': 1,
+      'segment_index': segmentIndex,
       'start_utc': startUtc.toIso8601String(),
       'end_utc': endUtc.toIso8601String(),
       'duration_ms': durationMs,
@@ -266,8 +357,8 @@ class SidecarWriter {
           ? videoFile.path
           : videoFile.uri.pathSegments.last,
       'notes': {
-        'adaptive_capture': 'TODO SPEC M3',
-        'stationary_auto_pause': 'TODO SPEC M3',
+        'adaptive_capture': 'downstream spatial sampling',
+        'stationary_auto_pause': 'GPS speed plus linear acceleration variance',
         'segment_auto_split': 'TODO SPEC M4',
         'external_storage': 'TODO SPEC M4',
         'background_recording_thermal': 'TODO SPEC M7',
@@ -429,11 +520,11 @@ class SidecarWriter {
     return _lerp(a, b, t);
   }
 
-  Future<int> _directorySize(Directory directory) async {
+  Future<int> _segmentFileBytes(File videoFile) async {
     var total = 0;
-    await for (final entity in directory.list(recursive: true)) {
-      if (entity is File) {
-        total += await entity.length();
+    for (final file in [videoFile, sidecarFile, gpxFile]) {
+      if (await file.exists()) {
+        total += await file.length();
       }
     }
     return total;

@@ -135,20 +135,27 @@ class SessionRepository {
   }
 
   Future<List<TrackPoint>> loadTrackPoints(SessionSummary summary) async {
-    final gpxRaw = await _readSessionText(summary, summary.gpxPath);
-    if (gpxRaw != null) {
-      final points = _trackPointsFromGpx(gpxRaw);
-      if (points.isNotEmpty) {
-        return points;
+    final segmentPoints = <TrackPoint>[];
+    for (final segment in summary.effectiveSegments) {
+      final gpxRaw = await _readSessionText(summary, segment.gpxPath);
+      if (gpxRaw != null) {
+        final points = _trackPointsFromGpx(gpxRaw);
+        if (points.isNotEmpty) {
+          segmentPoints.addAll(points);
+          continue;
+        }
+      }
+
+      final sidecarRaw = await _readSessionText(summary, segment.sidecarPath);
+      if (sidecarRaw != null) {
+        final points = _trackPointsFromTrackJson(sidecarRaw);
+        if (points.isNotEmpty) {
+          segmentPoints.addAll(points);
+        }
       }
     }
-
-    final sidecarRaw = await _readSessionText(summary, summary.sidecarPath);
-    if (sidecarRaw != null) {
-      final points = _trackPointsFromTrackJson(sidecarRaw);
-      if (points.isNotEmpty) {
-        return points;
-      }
+    if (segmentPoints.isNotEmpty) {
+      return segmentPoints;
     }
 
     final geoJsonRaw = await _readTrackGeoJson(summary);
@@ -319,12 +326,7 @@ class SessionRepository {
       return;
     }
 
-    final paths = <String>{
-      summary.videoPath,
-      summary.sidecarPath,
-      summary.gpxPath,
-    };
-    for (final path in paths.where((path) => path.isNotEmpty)) {
+    for (final path in summary.artifactPaths) {
       final resolvedPath = await _resolveInternalArtifactPath(summary, path);
       if (resolvedPath == null) {
         continue;
@@ -423,12 +425,7 @@ class SessionRepository {
     if (!await storageService.externalAvailable()) {
       return;
     }
-    final paths = <String>{
-      summary.videoPath,
-      summary.sidecarPath,
-      summary.gpxPath,
-    };
-    for (final path in paths.where((path) => path.isNotEmpty)) {
+    for (final path in summary.artifactPaths) {
       await storageService.deleteExternalFile(path);
     }
   }
@@ -438,12 +435,22 @@ class SessionRepository {
     List<ExternalFileAccess> externalAccesses,
   ) async {
     final candidates = <_SessionShareCandidate>[
-      if (summary.videoPath.trim().isNotEmpty)
-        _SessionShareCandidate(summary.videoPath, _SessionShareKind.video),
-      if (summary.sidecarPath.trim().isNotEmpty)
-        _SessionShareCandidate(summary.sidecarPath, _SessionShareKind.sidecar),
-      if (summary.gpxPath.trim().isNotEmpty)
-        _SessionShareCandidate(summary.gpxPath, _SessionShareKind.gpx),
+      if (summary.manifestPath.trim().isNotEmpty)
+        _SessionShareCandidate(
+          summary.manifestPath,
+          _SessionShareKind.manifest,
+        ),
+      for (final segment in summary.effectiveSegments) ...[
+        if (segment.videoPath.trim().isNotEmpty)
+          _SessionShareCandidate(segment.videoPath, _SessionShareKind.video),
+        if (segment.sidecarPath.trim().isNotEmpty)
+          _SessionShareCandidate(
+            segment.sidecarPath,
+            _SessionShareKind.sidecar,
+          ),
+        if (segment.gpxPath.trim().isNotEmpty)
+          _SessionShareCandidate(segment.gpxPath, _SessionShareKind.gpx),
+      ],
     ];
 
     final rawDirectoryPath = _normalizeSharePath(summary.directoryPath);
@@ -521,7 +528,22 @@ bool _storedPathsChanged(SessionSummary previous, SessionSummary next) {
   return previous.directoryPath != next.directoryPath ||
       previous.videoPath != next.videoPath ||
       previous.sidecarPath != next.sidecarPath ||
-      previous.gpxPath != next.gpxPath;
+      previous.gpxPath != next.gpxPath ||
+      previous.manifestPath != next.manifestPath ||
+      _segmentPathsSignature(previous) != _segmentPathsSignature(next);
+}
+
+String _segmentPathsSignature(SessionSummary summary) {
+  return summary.effectiveSegments
+      .map(
+        (segment) => [
+          segment.index,
+          segment.videoPath,
+          segment.sidecarPath,
+          segment.gpxPath,
+        ].join('|'),
+      )
+      .join(';');
 }
 
 List<TrackPoint> _trackPointsFromGpx(String raw) {
@@ -663,7 +685,7 @@ int? _readInt(Object? value) {
   return null;
 }
 
-enum _SessionShareKind { video, sidecar, gpx }
+enum _SessionShareKind { video, sidecar, manifest, gpx }
 
 class _SessionShareCandidate {
   const _SessionShareCandidate(this.path, this.kind);
@@ -674,11 +696,14 @@ class _SessionShareCandidate {
 
 _SessionShareKind? _shareKindForPath(String path) {
   final name = _filenameFromPath(path).toLowerCase();
-  if (name.endsWith('.mp4')) {
+  if (name.endsWith('.mp4') || name.endsWith('.mov')) {
     return _SessionShareKind.video;
   }
   if (name.endsWith('.track.json')) {
     return _SessionShareKind.sidecar;
+  }
+  if (name.endsWith('.session.json')) {
+    return _SessionShareKind.manifest;
   }
   if (name.endsWith('.gpx')) {
     return _SessionShareKind.gpx;
@@ -690,6 +715,7 @@ String _mimeTypeForKind(_SessionShareKind kind) {
   return switch (kind) {
     _SessionShareKind.video => 'video/mp4',
     _SessionShareKind.sidecar => 'application/json',
+    _SessionShareKind.manifest => 'application/json',
     _SessionShareKind.gpx => 'application/gpx+xml',
   };
 }
@@ -702,6 +728,7 @@ String _displayName(String path, _SessionShareKind kind) {
   return switch (kind) {
     _SessionShareKind.video => 'video.mp4',
     _SessionShareKind.sidecar => 'track.json',
+    _SessionShareKind.manifest => 'session.json',
     _SessionShareKind.gpx => 'track.gpx',
   };
 }

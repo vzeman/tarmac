@@ -17,8 +17,10 @@ class AppSettings {
     required this.frameSpacingM,
     required this.maxFps,
     required this.minFps,
+    required this.autoPauseEnabled,
     required this.pauseSpeedKmh,
     required this.pauseDebounceS,
+    required this.resumeSensitivity,
     required this.captureMode,
     required this.resolution,
     required this.codec,
@@ -39,11 +41,13 @@ class AppSettings {
       frameSpacingM: 1,
       maxFps: 30,
       minFps: 1,
+      autoPauseEnabled: true,
       pauseSpeedKmh: 2,
       pauseDebounceS: 3,
+      resumeSensitivity: 6,
       captureMode: CaptureMode.continuous,
       resolution: CaptureResolution.p1080,
-      codec: CaptureCodec.h264,
+      codec: CaptureCodec.hevc,
       maxSegmentGb: 10,
       storageLocation: StorageLocation.internal,
       keepScreenOn: true,
@@ -60,8 +64,10 @@ class AppSettings {
   final double frameSpacingM;
   final int maxFps;
   final int minFps;
+  final bool autoPauseEnabled;
   final double pauseSpeedKmh;
   final int pauseDebounceS;
+  final int resumeSensitivity;
   final CaptureMode captureMode;
   final CaptureResolution resolution;
   final CaptureCodec codec;
@@ -80,12 +86,24 @@ class AppSettings {
     return maxFps.clamp(minFps, 60).toInt();
   }
 
+  double get resumeMotionVarianceThreshold {
+    final bounded = resumeSensitivity.clamp(1, 10).toDouble();
+    final normalized = (bounded - 1) / 9;
+    return 0.24 - (normalized * 0.20);
+  }
+
+  double get pauseMotionVarianceThreshold {
+    return resumeMotionVarianceThreshold * 0.45;
+  }
+
   AppSettings copyWith({
     double? frameSpacingM,
     int? maxFps,
     int? minFps,
+    bool? autoPauseEnabled,
     double? pauseSpeedKmh,
     int? pauseDebounceS,
+    int? resumeSensitivity,
     CaptureMode? captureMode,
     CaptureResolution? resolution,
     CaptureCodec? codec,
@@ -104,8 +122,10 @@ class AppSettings {
       frameSpacingM: frameSpacingM ?? this.frameSpacingM,
       maxFps: maxFps ?? this.maxFps,
       minFps: minFps ?? this.minFps,
+      autoPauseEnabled: autoPauseEnabled ?? this.autoPauseEnabled,
       pauseSpeedKmh: pauseSpeedKmh ?? this.pauseSpeedKmh,
       pauseDebounceS: pauseDebounceS ?? this.pauseDebounceS,
+      resumeSensitivity: resumeSensitivity ?? this.resumeSensitivity,
       captureMode: captureMode ?? this.captureMode,
       resolution: resolution ?? this.resolution,
       codec: codec ?? this.codec,
@@ -128,8 +148,10 @@ class AppSettings {
       'frame_spacing_m': frameSpacingM,
       'max_fps': maxFps,
       'min_fps': minFps,
+      'auto_pause_enabled': autoPauseEnabled,
       'pause_speed_kmh': pauseSpeedKmh,
       'pause_debounce_s': pauseDebounceS,
+      'resume_sensitivity': resumeSensitivity,
       'capture_mode': captureMode.name,
       'resolution': resolution.name,
       'codec': codec.name,
@@ -155,6 +177,9 @@ class AppSettings {
       ),
       maxFps: _readInt(json['max_fps'], defaults.maxFps),
       minFps: _readInt(json['min_fps'], defaults.minFps),
+      autoPauseEnabled: json['auto_pause_enabled'] is bool
+          ? json['auto_pause_enabled'] as bool
+          : defaults.autoPauseEnabled,
       pauseSpeedKmh: _readDouble(
         json['pause_speed_kmh'],
         defaults.pauseSpeedKmh,
@@ -163,6 +188,10 @@ class AppSettings {
         json['pause_debounce_s'],
         defaults.pauseDebounceS,
       ),
+      resumeSensitivity: _readInt(
+        json['resume_sensitivity'],
+        defaults.resumeSensitivity,
+      ).clamp(1, 10).toInt(),
       captureMode: _enumByName(
         CaptureMode.values,
         json['capture_mode'],

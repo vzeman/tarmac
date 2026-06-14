@@ -120,6 +120,8 @@ class StorageService {
       videoPath: await _portableInternalPath(summary.videoPath),
       sidecarPath: await _portableInternalPath(summary.sidecarPath),
       gpxPath: await _portableInternalPath(summary.gpxPath),
+      manifestPath: await _portableInternalPath(summary.manifestPath),
+      segments: await _portableSegments(summary.effectiveSegments),
     );
   }
 
@@ -237,12 +239,24 @@ class StorageService {
     final videoPath = movedPaths[summary.videoPath] ?? summary.videoPath;
     final sidecarPath = movedPaths[summary.sidecarPath] ?? summary.sidecarPath;
     final gpxPath = movedPaths[summary.gpxPath] ?? summary.gpxPath;
+    final manifestPath =
+        movedPaths[summary.manifestPath] ?? summary.manifestPath;
+    final segments = [
+      for (final segment in summary.effectiveSegments)
+        segment.copyWith(
+          videoPath: movedPaths[segment.videoPath] ?? segment.videoPath,
+          sidecarPath: movedPaths[segment.sidecarPath] ?? segment.sidecarPath,
+          gpxPath: movedPaths[segment.gpxPath] ?? segment.gpxPath,
+        ),
+    ];
 
     return summary.copyWith(
       directoryPath: _externalDirectoryPath(summary.id, videoPath),
       videoPath: videoPath,
       sidecarPath: sidecarPath,
       gpxPath: gpxPath,
+      manifestPath: manifestPath,
+      segments: segments,
       totalBytes: totalBytes,
       storageLocation: 'external',
       storageAvailable: true,
@@ -405,6 +419,22 @@ class StorageService {
 
     final migratedPath = _joinDocumentsPath(documentsPath, staleRelativePath);
     return await _entityExists(migratedPath) ? staleRelativePath : path;
+  }
+
+  Future<List<SessionSegment>> _portableSegments(
+    List<SessionSegment> segments,
+  ) async {
+    final portable = <SessionSegment>[];
+    for (final segment in segments) {
+      portable.add(
+        segment.copyWith(
+          videoPath: await _portableInternalPath(segment.videoPath),
+          sidecarPath: await _portableInternalPath(segment.sidecarPath),
+          gpxPath: await _portableInternalPath(segment.gpxPath),
+        ),
+      );
+    }
+    return portable;
   }
 
   String _normalizeStoredPath(String path) {

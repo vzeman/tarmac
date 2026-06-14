@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:chewie/chewie.dart';
@@ -28,12 +29,28 @@ class _SessionVideoPlayerScreenState extends State<SessionVideoPlayerScreen> {
   VideoPlayerController? _videoController;
   ChewieController? _chewieController;
   ExternalFileAccess? _externalAccess;
+  late SessionSegment _selectedSegment;
   bool _loading = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    final segments = widget.session.effectiveSegments;
+    _selectedSegment = segments.isNotEmpty
+        ? segments.first
+        : SessionSegment(
+            index: 1,
+            videoPath: widget.session.videoPath,
+            sidecarPath: widget.session.sidecarPath,
+            gpxPath: widget.session.gpxPath,
+            startedAtUtc: widget.session.startedAtUtc,
+            endedAtUtc: widget.session.endedAtUtc,
+            durationMs: widget.session.durationMs,
+            frameCount: widget.session.frameCount,
+            gpsSampleCount: widget.session.gpsSampleCount,
+            imuSampleCount: widget.session.imuSampleCount,
+          );
     _initialize();
   }
 
@@ -46,7 +63,7 @@ class _SessionVideoPlayerScreenState extends State<SessionVideoPlayerScreen> {
   }
 
   Future<void> _initialize() async {
-    final storedPath = widget.session.videoPath.trim();
+    final storedPath = _selectedSegment.videoPath.trim();
     if (storedPath.isEmpty) {
       _showError('This session does not have a video segment.');
       return;
@@ -122,6 +139,24 @@ class _SessionVideoPlayerScreenState extends State<SessionVideoPlayerScreen> {
     }
   }
 
+  Future<void> _switchSegment(SessionSegment segment) async {
+    if (segment.index == _selectedSegment.index) {
+      return;
+    }
+    _chewieController?.dispose();
+    _videoController?.dispose();
+    _externalAccess?.release();
+    _chewieController = null;
+    _videoController = null;
+    _externalAccess = null;
+    setState(() {
+      _selectedSegment = segment;
+      _loading = true;
+      _error = null;
+    });
+    await _initialize();
+  }
+
   Future<bool> _fileExists(String path) async {
     try {
       return await File(path).exists();
@@ -148,9 +183,28 @@ class _SessionVideoPlayerScreenState extends State<SessionVideoPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final title = _segmentName(widget.session.videoPath);
+    final title = _segmentName(_selectedSegment.videoPath);
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(
+        title: Text(title),
+        actions: [
+          if (widget.session.segmentCount > 1)
+            PopupMenuButton<SessionSegment>(
+              tooltip: 'Select segment',
+              initialValue: _selectedSegment,
+              onSelected: (segment) => unawaited(_switchSegment(segment)),
+              itemBuilder: (context) {
+                return [
+                  for (final segment in widget.session.effectiveSegments)
+                    PopupMenuItem<SessionSegment>(
+                      value: segment,
+                      child: Text('Segment ${segment.index}'),
+                    ),
+                ];
+              },
+            ),
+        ],
+      ),
       body: SafeArea(
         top: false,
         child: ColoredBox(

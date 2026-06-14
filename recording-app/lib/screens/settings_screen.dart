@@ -84,6 +84,13 @@ class SettingsScreen extends StatelessWidget {
                     onChanged: (value) =>
                         onChanged(settings.copyWith(frameSpacingM: value)),
                   ),
+                  SwitchListTile(
+                    title: const Text('Auto-pause while stationary'),
+                    subtitle: const Text('Finalize and resume video segments'),
+                    value: settings.autoPauseEnabled,
+                    onChanged: (value) =>
+                        onChanged(settings.copyWith(autoPauseEnabled: value)),
+                  ),
                   _SliderTile(
                     title: 'Auto-pause speed',
                     value: settings.pauseSpeedKmh,
@@ -102,6 +109,14 @@ class SettingsScreen extends StatelessWidget {
                     suffix: 's',
                     onChanged: (value) =>
                         onChanged(settings.copyWith(pauseDebounceS: value)),
+                  ),
+                  _IntSliderTile(
+                    title: 'Resume sensitivity',
+                    value: settings.resumeSensitivity,
+                    min: 1,
+                    max: 10,
+                    onChanged: (value) =>
+                        onChanged(settings.copyWith(resumeSensitivity: value)),
                   ),
                 ],
               ),

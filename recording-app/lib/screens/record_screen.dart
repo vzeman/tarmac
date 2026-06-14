@@ -322,7 +322,7 @@ class _RecordScreenState extends State<RecordScreen>
       return _SurveyVisualState.stopping;
     }
     if (_controller.isRecording) {
-      return _isStationaryPauseVisual
+      return _controller.isAutoPaused
           ? _SurveyVisualState.paused
           : _SurveyVisualState.recording;
     }
@@ -330,13 +330,6 @@ class _RecordScreenState extends State<RecordScreen>
     return readiness.canStart
         ? _SurveyVisualState.ready
         : _SurveyVisualState.idle;
-  }
-
-  bool get _isStationaryPauseVisual {
-    final speedKmh = _controller.speedMps * 3.6;
-    return widget.settings.captureMode == CaptureMode.adaptive &&
-        _controller.elapsed.inSeconds >= widget.settings.pauseDebounceS &&
-        speedKmh <= widget.settings.pauseSpeedKmh;
   }
 
   _PreflightReadiness _readiness() {
@@ -431,6 +424,13 @@ class _RecordScreenState extends State<RecordScreen>
               ),
             ),
           ),
+          if (_controller.isAutoPaused)
+            Positioned(
+              top: 112,
+              left: 0,
+              right: railWidth + 20,
+              child: Center(child: _AutoPauseIndicator()),
+            ),
           Positioned(
             left: 22,
             top: constraints.maxHeight * 0.24,
@@ -483,7 +483,7 @@ class _RecordScreenState extends State<RecordScreen>
             Positioned(
               left: 18,
               right: railWidth + 28,
-              top: 112,
+              top: _controller.isAutoPaused ? 152 : 112,
               child: _MessageStack(
                 warning: _controller.warningMessage,
                 error: _controller.errorMessage,
@@ -536,6 +536,13 @@ class _RecordScreenState extends State<RecordScreen>
                     ),
                   ),
                 ),
+                if (_controller.isAutoPaused)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: 108,
+                    child: Center(child: _AutoPauseIndicator()),
+                  ),
               ],
             ),
           ),
@@ -769,6 +776,42 @@ class _StatePillData {
   }
 }
 
+class _AutoPauseIndicator extends StatelessWidget {
+  const _AutoPauseIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withAlpha(190),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: _warningColor.withAlpha(170)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.pause_circle_outline,
+              color: _warningColor,
+              size: 18,
+            ),
+            const SizedBox(width: 7),
+            Text(
+              'Auto-paused (stationary)',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SpeedReadout extends StatelessWidget {
   const _SpeedReadout({
     required this.speedMps,
@@ -865,10 +908,10 @@ class _ThumbRail extends StatelessWidget {
         label: 'Frames',
         value: controller.estimatedFrameCount.toString(),
       ),
-      const _RailMetric(
+      _RailMetric(
         icon: Icons.movie_creation_outlined,
         label: 'Segments',
-        value: '1',
+        value: controller.segmentCount.toString(),
       ),
       _RailMetric(
         icon: Icons.my_location,
