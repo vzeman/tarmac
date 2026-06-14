@@ -75,10 +75,24 @@ class SessionRepository {
           .map(SessionSummary.fromJson)
           .where((session) => session.id.isNotEmpty)
           .toList();
-      final externalAvailable = sessions.any((session) => session.isExternal)
+      final portableSessions = <SessionSummary>[];
+      var migrated = false;
+      for (final session in sessions) {
+        final portable = await storageService.summaryWithPortableInternalPaths(
+          session,
+        );
+        migrated = migrated || _storedPathsChanged(session, portable);
+        portableSessions.add(portable);
+      }
+      if (migrated) {
+        await _writeIndex(portableSessions);
+      }
+
+      final externalAvailable =
+          portableSessions.any((session) => session.isExternal)
           ? await storageService.externalAvailable()
           : false;
-      final markedSessions = sessions
+      final markedSessions = portableSessions
           .map(
             (session) => session.isExternal
                 ? session.copyWith(storageAvailable: externalAvailable)
@@ -95,9 +109,11 @@ class SessionRepository {
   }
 
   Future<void> saveSummary(SessionSummary summary) async {
+    final portableSummary = await storageService
+        .summaryWithPortableInternalPaths(summary);
     final sessions = await listSessions();
-    sessions.removeWhere((session) => session.id == summary.id);
-    sessions.insert(0, summary);
+    sessions.removeWhere((session) => session.id == portableSummary.id);
+    sessions.insert(0, portableSummary);
     await _writeIndex(sessions);
   }
 
@@ -119,26 +135,45 @@ class SessionRepository {
   }
 
   Future<List<TrackPoint>> loadTrackPoints(SessionSummary summary) async {
-    final raw = await _readSessionText(summary, summary.gpxPath);
-    if (raw == null) {
-      return _fallbackPoints(summary);
-    }
-    final matches = RegExp(
-      r'<trkpt lat="([^"]+)" lon="([^"]+)">.*?<time>([^<]+)</time>',
-      dotAll: true,
-    ).allMatches(raw);
-    final points = <TrackPoint>[];
-    for (final match in matches) {
-      final lat = double.tryParse(match.group(1) ?? '');
-      final lon = double.tryParse(match.group(2) ?? '');
-      final time = DateTime.tryParse(match.group(3) ?? '')?.toUtc();
-      if (lat != null && lon != null) {
-        points.add(
-          TrackPoint(lat: lat, lon: lon, utcMs: time?.millisecondsSinceEpoch),
-        );
+    final gpxRaw = await _readSessionText(summary, summary.gpxPath);
+    if (gpxRaw != null) {
+      final points = _trackPointsFromGpx(gpxRaw);
+      if (points.isNotEmpty) {
+        return points;
       }
     }
-    return points.isEmpty ? _fallbackPoints(summary) : points;
+
+    final sidecarRaw = await _readSessionText(summary, summary.sidecarPath);
+    if (sidecarRaw != null) {
+      final points = _trackPointsFromTrackJson(sidecarRaw);
+      if (points.isNotEmpty) {
+        return points;
+      }
+    }
+
+    final geoJsonRaw = await _readTrackGeoJson(summary);
+    if (geoJsonRaw != null) {
+      final points = _trackPointsFromGeoJson(geoJsonRaw);
+      if (points.isNotEmpty) {
+        return points;
+      }
+    }
+
+    return _fallbackPoints(summary);
+  }
+
+  Future<String> resolveSessionArtifactPath(
+    SessionSummary summary,
+    String storedPath,
+  ) async {
+    final path = _normalizeSharePath(storedPath);
+    if (path == null) {
+      return '';
+    }
+    if (summary.isExternal || _isContentUri(path)) {
+      return path;
+    }
+    return storageService.resolveInternalPath(path);
   }
 
   Future<SessionSharePackage> resolveShareableFiles(
@@ -152,8 +187,12 @@ class SessionRepository {
       final seenPaths = <String>{};
 
       for (final candidate in candidates) {
-        final path = _normalizeSharePath(candidate.path);
-        if (path == null || !seenPaths.add(path)) {
+        final rawPath = _normalizeSharePath(candidate.path);
+        if (rawPath == null) {
+          continue;
+        }
+        final path = await _resolveSharePath(summary, rawPath);
+        if (!seenPaths.add(path)) {
           continue;
         }
         final displayName = _displayName(path, candidate.kind);
@@ -248,10 +287,16 @@ class SessionRepository {
 
   Future<void> _writeIndex(List<SessionSummary> sessions) async {
     final file = await _indexFile();
+    final portableSessions = <SessionSummary>[];
+    for (final session in sessions) {
+      portableSessions.add(
+        await storageService.summaryWithPortableInternalPaths(session),
+      );
+    }
     await file.writeAsString(
       const JsonEncoder.withIndent(
         '  ',
-      ).convert(sessions.map((session) => session.toJson()).toList()),
+      ).convert(portableSessions.map((session) => session.toJson()).toList()),
     );
   }
 
@@ -262,8 +307,14 @@ class SessionRepository {
     }
 
     final root = await storageService.recordingsRoot();
-    final directory = Directory(summary.directoryPath);
-    if (_isInsideRoot(root, directory) && await directory.exists()) {
+    final directoryPath = await _resolveInternalArtifactPath(
+      summary,
+      summary.directoryPath,
+    );
+    final directory = directoryPath == null ? null : Directory(directoryPath);
+    if (directory != null &&
+        _isInsideRoot(root, directory) &&
+        await directory.exists()) {
       await directory.delete(recursive: true);
       return;
     }
@@ -274,7 +325,11 @@ class SessionRepository {
       summary.gpxPath,
     };
     for (final path in paths.where((path) => path.isNotEmpty)) {
-      final file = File(path);
+      final resolvedPath = await _resolveInternalArtifactPath(summary, path);
+      if (resolvedPath == null) {
+        continue;
+      }
+      final file = File(resolvedPath);
       if (_isInsideRoot(root, file) && await file.exists()) {
         await file.delete();
       }
@@ -289,7 +344,12 @@ class SessionRepository {
       return storageService.readExternalText(path);
     }
 
-    final file = File(path);
+    final resolvedPath = await _resolveInternalArtifactPath(summary, path);
+    if (resolvedPath == null) {
+      return null;
+    }
+
+    final file = File(resolvedPath);
     try {
       if (!await file.exists()) {
         return null;
@@ -298,6 +358,65 @@ class SessionRepository {
     } on FileSystemException {
       return null;
     }
+  }
+
+  Future<String?> _readTrackGeoJson(SessionSummary summary) async {
+    if (summary.isExternal) {
+      return null;
+    }
+
+    final directoryPath = await _resolveInternalArtifactPath(
+      summary,
+      summary.directoryPath,
+    );
+    if (directoryPath == null) {
+      return null;
+    }
+
+    final directory = Directory(directoryPath);
+    if (!await _directoryExists(directory)) {
+      return null;
+    }
+
+    try {
+      await for (final entity in directory.list(followLinks: false)) {
+        if (entity is! File) {
+          continue;
+        }
+        final name = _filenameFromPath(entity.path).toLowerCase();
+        if (!name.endsWith('.geojson')) {
+          continue;
+        }
+        return entity.readAsString();
+      }
+    } on FileSystemException {
+      return null;
+    }
+    return null;
+  }
+
+  Future<String?> _resolveInternalArtifactPath(
+    SessionSummary summary,
+    String storedPath,
+  ) async {
+    if (summary.isExternal) {
+      return null;
+    }
+    final path = _normalizeSharePath(storedPath);
+    if (path == null || _isContentUri(path)) {
+      return null;
+    }
+    return storageService.resolveInternalPath(path);
+  }
+
+  Future<String> _resolveSharePath(
+    SessionSummary summary,
+    String storedPath,
+  ) async {
+    if (summary.isExternal || _isContentUri(storedPath)) {
+      return storedPath;
+    }
+    return storageService.resolveInternalPath(storedPath);
   }
 
   Future<void> _deleteExternalSessionArtifacts(SessionSummary summary) async {
@@ -327,7 +446,10 @@ class SessionRepository {
         _SessionShareCandidate(summary.gpxPath, _SessionShareKind.gpx),
     ];
 
-    final directoryPath = _normalizeSharePath(summary.directoryPath);
+    final rawDirectoryPath = _normalizeSharePath(summary.directoryPath);
+    final directoryPath = rawDirectoryPath == null
+        ? null
+        : await _resolveSharePath(summary, rawDirectoryPath);
     if (directoryPath == null || _isContentUri(directoryPath)) {
       return _sortShareCandidates(candidates);
     }
@@ -393,6 +515,152 @@ class SessionRepository {
     }
     return points;
   }
+}
+
+bool _storedPathsChanged(SessionSummary previous, SessionSummary next) {
+  return previous.directoryPath != next.directoryPath ||
+      previous.videoPath != next.videoPath ||
+      previous.sidecarPath != next.sidecarPath ||
+      previous.gpxPath != next.gpxPath;
+}
+
+List<TrackPoint> _trackPointsFromGpx(String raw) {
+  final matches = RegExp(
+    r'<trkpt lat="([^"]+)" lon="([^"]+)">.*?<time>([^<]+)</time>',
+    dotAll: true,
+  ).allMatches(raw);
+  final points = <TrackPoint>[];
+  for (final match in matches) {
+    final lat = double.tryParse(match.group(1) ?? '');
+    final lon = double.tryParse(match.group(2) ?? '');
+    final time = DateTime.tryParse(match.group(3) ?? '')?.toUtc();
+    if (lat != null && lon != null) {
+      points.add(
+        TrackPoint(lat: lat, lon: lon, utcMs: time?.millisecondsSinceEpoch),
+      );
+    }
+  }
+  return points;
+}
+
+List<TrackPoint> _trackPointsFromTrackJson(String raw) {
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic>) {
+      return const [];
+    }
+    final gps = _pointsFromTrackJsonList(decoded['gps']);
+    if (gps.isNotEmpty) {
+      return gps;
+    }
+    return _pointsFromTrackJsonList(decoded['frames']);
+  } on FormatException {
+    return const [];
+  } on TypeError {
+    return const [];
+  }
+}
+
+List<TrackPoint> _pointsFromTrackJsonList(Object? value) {
+  if (value is! List) {
+    return const [];
+  }
+  final points = <TrackPoint>[];
+  for (final item in value) {
+    if (item is! Map<String, dynamic>) {
+      continue;
+    }
+    final lat = _readDouble(item['lat']);
+    final lon = _readDouble(item['lon']);
+    if (lat == null || lon == null) {
+      continue;
+    }
+    points.add(
+      TrackPoint(
+        lat: lat,
+        lon: lon,
+        utcMs: _readInt(item['utc_ms']) ?? _readInt(item['fix_utc_ms']),
+      ),
+    );
+  }
+  return points;
+}
+
+List<TrackPoint> _trackPointsFromGeoJson(String raw) {
+  try {
+    final decoded = jsonDecode(raw);
+    return _pointsFromGeoJsonValue(decoded);
+  } on FormatException {
+    return const [];
+  } on TypeError {
+    return const [];
+  }
+}
+
+List<TrackPoint> _pointsFromGeoJsonValue(Object? value) {
+  if (value is! Map<String, dynamic>) {
+    return const [];
+  }
+
+  final type = value['type']?.toString();
+  if (type == 'FeatureCollection') {
+    final features = value['features'];
+    if (features is! List) {
+      return const [];
+    }
+    return [
+      for (final feature in features) ..._pointsFromGeoJsonValue(feature),
+    ];
+  }
+  if (type == 'Feature') {
+    return _pointsFromGeoJsonValue(value['geometry']);
+  }
+  if (type == 'LineString') {
+    return _pointsFromGeoJsonCoordinates(value['coordinates']);
+  }
+  if (type == 'MultiLineString') {
+    final lines = value['coordinates'];
+    if (lines is! List) {
+      return const [];
+    }
+    return [for (final line in lines) ..._pointsFromGeoJsonCoordinates(line)];
+  }
+  if (type == 'Point') {
+    return _pointsFromGeoJsonCoordinates([value['coordinates']]);
+  }
+  return const [];
+}
+
+List<TrackPoint> _pointsFromGeoJsonCoordinates(Object? coordinates) {
+  if (coordinates is! List) {
+    return const [];
+  }
+  final points = <TrackPoint>[];
+  for (final coordinate in coordinates) {
+    if (coordinate is! List || coordinate.length < 2) {
+      continue;
+    }
+    final lon = _readDouble(coordinate[0]);
+    final lat = _readDouble(coordinate[1]);
+    if (lat != null && lon != null) {
+      points.add(TrackPoint(lat: lat, lon: lon));
+    }
+  }
+  return points;
+}
+
+double? _readDouble(Object? value) {
+  if (value is num) {
+    return value.toDouble();
+  }
+  return null;
+}
+
+int? _readInt(Object? value) {
+  if (value is num) {
+    return value.round();
+  }
+  return null;
 }
 
 enum _SessionShareKind { video, sidecar, gpx }

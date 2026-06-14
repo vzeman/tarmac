@@ -46,12 +46,16 @@ class _SessionVideoPlayerScreenState extends State<SessionVideoPlayerScreen> {
   }
 
   Future<void> _initialize() async {
-    final path = widget.session.videoPath.trim();
-    if (path.isEmpty) {
+    final storedPath = widget.session.videoPath.trim();
+    if (storedPath.isEmpty) {
       _showError('This session does not have a video segment.');
       return;
     }
 
+    final path = await widget.sessionRepository.resolveSessionArtifactPath(
+      widget.session,
+      storedPath,
+    );
     final isContentUri = _isContentUri(path);
     if (widget.session.isExternal) {
       final access = await widget.sessionRepository.storageService
@@ -75,7 +79,7 @@ class _SessionVideoPlayerScreenState extends State<SessionVideoPlayerScreen> {
     }
 
     if (!isContentUri && !await _fileExists(path)) {
-      _showError('The video file is missing or unavailable.');
+      _showError('Video file not found at $path');
       return;
     }
 
@@ -108,13 +112,13 @@ class _SessionVideoPlayerScreenState extends State<SessionVideoPlayerScreen> {
       setState(() {
         _loading = false;
       });
-    } on Object {
+    } on Object catch (error) {
       await controller.dispose();
       if (!mounted) {
         return;
       }
       _videoController = null;
-      _showError('The video file could not be opened.');
+      _showError('Video decode/init failed: $error');
     }
   }
 

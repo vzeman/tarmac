@@ -86,6 +86,43 @@ class StorageService {
     return directory;
   }
 
+  Future<String> resolveInternalPath(String storedPath) async {
+    final path = _normalizeStoredPath(storedPath);
+    if (!_isResolvableInternalPath(path)) {
+      return path;
+    }
+
+    final documentsPath = await _documentsDirectoryPath();
+    if (!_isAbsolutePath(path)) {
+      return _joinDocumentsPath(documentsPath, path);
+    }
+
+    if (await _entityExists(path)) {
+      return path;
+    }
+
+    final staleRelativePath = _relativePathAfterDocuments(path);
+    if (staleRelativePath != null) {
+      return _joinDocumentsPath(documentsPath, staleRelativePath);
+    }
+
+    return path;
+  }
+
+  Future<SessionSummary> summaryWithPortableInternalPaths(
+    SessionSummary summary,
+  ) async {
+    if (summary.isExternal) {
+      return summary;
+    }
+    return summary.copyWith(
+      directoryPath: await _portableInternalPath(summary.directoryPath),
+      videoPath: await _portableInternalPath(summary.videoPath),
+      sidecarPath: await _portableInternalPath(summary.sidecarPath),
+      gpxPath: await _portableInternalPath(summary.gpxPath),
+    );
+  }
+
   Future<int?> freeBytesForPath(String path) async {
     return _invokeInt('freeBytes', {'path': path});
   }
@@ -336,5 +373,123 @@ class StorageService {
       return 'external://$sessionId';
     }
     return videoPath.substring(0, slash);
+  }
+
+  Future<String> _documentsDirectoryPath() async {
+    return (await getApplicationDocumentsDirectory()).path;
+  }
+
+  Future<String> _portableInternalPath(String storedPath) async {
+    final path = _normalizeStoredPath(storedPath);
+    if (!_isResolvableInternalPath(path)) {
+      return path;
+    }
+    if (!_isAbsolutePath(path)) {
+      return _normalizeRelativePath(path);
+    }
+
+    final documentsPath = await _documentsDirectoryPath();
+    final currentRelativePath = _relativePathInside(documentsPath, path);
+    if (currentRelativePath != null) {
+      return currentRelativePath;
+    }
+
+    if (await _entityExists(path)) {
+      return path;
+    }
+
+    final staleRelativePath = _relativePathAfterDocuments(path);
+    if (staleRelativePath == null) {
+      return path;
+    }
+
+    final migratedPath = _joinDocumentsPath(documentsPath, staleRelativePath);
+    return await _entityExists(migratedPath) ? staleRelativePath : path;
+  }
+
+  String _normalizeStoredPath(String path) {
+    final trimmed = path.trim();
+    final uri = Uri.tryParse(trimmed);
+    if (uri != null && uri.scheme == 'file') {
+      return uri.toFilePath();
+    }
+    return trimmed;
+  }
+
+  bool _isResolvableInternalPath(String path) {
+    if (path.isEmpty) {
+      return false;
+    }
+    final uri = Uri.tryParse(path);
+    return uri == null || !uri.hasScheme || uri.scheme == 'file';
+  }
+
+  bool _isAbsolutePath(String path) {
+    return path.startsWith('/') || RegExp(r'^[A-Za-z]:[\\/]').hasMatch(path);
+  }
+
+  String _joinDocumentsPath(String documentsPath, String relativePath) {
+    final root = _stripTrailingSeparators(documentsPath);
+    final localRelativePath = _normalizeRelativePath(
+      relativePath,
+    ).replaceAll('/', Platform.pathSeparator);
+    return '$root${Platform.pathSeparator}$localRelativePath';
+  }
+
+  String _normalizeRelativePath(String path) {
+    var normalized = path.replaceAll('\\', '/');
+    while (normalized.startsWith('/')) {
+      normalized = normalized.substring(1);
+    }
+    return normalized;
+  }
+
+  String? _relativePathInside(String rootPath, String path) {
+    final root = _stripTrailingSlashes(rootPath.replaceAll('\\', '/'));
+    final normalizedPath = path.replaceAll('\\', '/');
+    if (normalizedPath == root) {
+      return '';
+    }
+    final prefix = '$root/';
+    if (!normalizedPath.startsWith(prefix)) {
+      return null;
+    }
+    return _normalizeRelativePath(normalizedPath.substring(prefix.length));
+  }
+
+  String? _relativePathAfterDocuments(String path) {
+    final normalizedPath = path.replaceAll('\\', '/');
+    const marker = '/Documents/';
+    final markerIndex = normalizedPath.indexOf(marker);
+    if (markerIndex < 0) {
+      return null;
+    }
+    final relativePath = normalizedPath.substring(markerIndex + marker.length);
+    return relativePath.isEmpty ? null : _normalizeRelativePath(relativePath);
+  }
+
+  String _stripTrailingSeparators(String path) {
+    final separator = Platform.pathSeparator;
+    var stripped = path;
+    while (stripped.length > 1 && stripped.endsWith(separator)) {
+      stripped = stripped.substring(0, stripped.length - separator.length);
+    }
+    return stripped;
+  }
+
+  String _stripTrailingSlashes(String path) {
+    var stripped = path;
+    while (stripped.length > 1 && stripped.endsWith('/')) {
+      stripped = stripped.substring(0, stripped.length - 1);
+    }
+    return stripped;
+  }
+
+  Future<bool> _entityExists(String path) async {
+    try {
+      return await FileSystemEntity.type(path) != FileSystemEntityType.notFound;
+    } on FileSystemException {
+      return false;
+    }
   }
 }

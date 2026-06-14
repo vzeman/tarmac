@@ -681,16 +681,23 @@ class _SessionMap extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final latLngs = points
+        .where(_isValidTrackPoint)
         .map((point) => LatLng(point.lat, point.lon))
         .toList();
-    final center = latLngs.isEmpty ? const LatLng(0, 0) : latLngs.first;
     final bounds = latLngs.length > 1 ? LatLngBounds.fromPoints(latLngs) : null;
+    final center =
+        bounds?.center ??
+        (latLngs.isEmpty ? const LatLng(0, 0) : latLngs.first);
+    final initialZoom = latLngs.length == 1
+        ? 17.0
+        : (latLngs.isEmpty ? 2.0 : 15.0);
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: FlutterMap(
+        key: ValueKey(_trackMapKey(latLngs)),
         options: MapOptions(
           initialCenter: center,
-          initialZoom: latLngs.isEmpty ? 2 : 15,
+          initialZoom: initialZoom,
           initialCameraFit: bounds == null
               ? null
               : CameraFit.bounds(
@@ -718,26 +725,61 @@ class _SessionMap extends StatelessWidget {
               ],
             ),
           if (latLngs.isNotEmpty)
-            MarkerLayer(
-              markers: [
-                Marker(
-                  point: latLngs.first,
-                  width: compact ? 20 : 28,
-                  height: compact ? 20 : 28,
-                  child: const Icon(Icons.trip_origin, color: Colors.green),
-                ),
-                Marker(
-                  point: latLngs.last,
-                  width: compact ? 20 : 28,
-                  height: compact ? 20 : 28,
-                  child: const Icon(Icons.flag, color: Colors.redAccent),
-                ),
-              ],
-            ),
+            MarkerLayer(markers: _trackMarkers(latLngs, compact: compact)),
         ],
       ),
     );
   }
+}
+
+bool _isValidTrackPoint(TrackPoint point) {
+  return point.lat.isFinite &&
+      point.lon.isFinite &&
+      point.lat >= -90 &&
+      point.lat <= 90 &&
+      point.lon >= -180 &&
+      point.lon <= 180;
+}
+
+List<Marker> _trackMarkers(List<LatLng> latLngs, {required bool compact}) {
+  final size = compact ? 20.0 : 28.0;
+  if (latLngs.length == 1) {
+    return [
+      Marker(
+        point: latLngs.single,
+        width: size,
+        height: size,
+        child: const Icon(Icons.location_on, color: Colors.redAccent),
+      ),
+    ];
+  }
+  return [
+    Marker(
+      point: latLngs.first,
+      width: size,
+      height: size,
+      child: const Icon(Icons.trip_origin, color: Colors.green),
+    ),
+    Marker(
+      point: latLngs.last,
+      width: size,
+      height: size,
+      child: const Icon(Icons.flag, color: Colors.redAccent),
+    ),
+  ];
+}
+
+String _trackMapKey(List<LatLng> latLngs) {
+  if (latLngs.isEmpty) {
+    return 'empty';
+  }
+  final first = latLngs.first;
+  final last = latLngs.last;
+  return '${latLngs.length}:'
+      '${first.latitude.toStringAsFixed(6)},'
+      '${first.longitude.toStringAsFixed(6)}:'
+      '${last.latitude.toStringAsFixed(6)},'
+      '${last.longitude.toStringAsFixed(6)}';
 }
 
 class _SessionFact extends StatelessWidget {
