@@ -726,6 +726,11 @@ def analyze(
         "--mm-per-pixel",
         help="Optional calibration for metric crack measurements.",
     ),
+    defect_gating: bool = typer.Option(
+        True,
+        "--defect-gating/--no-defect-gating",
+        help="Gate CODEBRIM-backed concrete defect labels to concrete/structural surfaces.",
+    ),
 ) -> None:
     """Analyze a photo, image directory, or video."""
     from tarmac.inference.analyze import analyze_path, print_summary
@@ -741,6 +746,7 @@ def analyze(
         region=region,
         crack_segmentation=crack_segmentation,
         mm_per_pixel=mm_per_pixel,
+        defect_gating=defect_gating,
     )
     print_summary(summary, console)
 
@@ -764,6 +770,11 @@ def assess(
     batch_size: int = typer.Option(16, "--batch-size", help="Embedding batch size."),
     device: str = typer.Option("cpu", "--device", help="Inference device. Use cpu for reproducible smoke runs."),
     region: str = typer.Option("auto", "--region", help="Tile region: auto, lower_half, or full."),
+    defect_gating: bool = typer.Option(
+        True,
+        "--defect-gating/--no-defect-gating",
+        help="Gate CODEBRIM-backed concrete defect labels to concrete/structural surfaces.",
+    ),
 ) -> None:
     """Run analysis and aggregate a PCI-proxy condition/repair-priority assessment."""
     from tarmac.inference.assess import assess_path, print_assessment_summary
@@ -778,6 +789,7 @@ def assess(
         device=device,
         region=region,
         mm_per_pixel=mm_per_pixel,
+        defect_gating=defect_gating,
     )
     print_assessment_summary(payload, console)
 

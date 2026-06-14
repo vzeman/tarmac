@@ -193,6 +193,8 @@ Held-out test AP / F1: crack `0.9868 / 0.9393`, spalling `0.9660 / 0.8953`, effl
 
 When `models/defect_head.pt` exists, `tarmac analyze` adds per-tile `tile_defect_<label>_prob` and `tile_defect_<label>` columns to `tiles.parquet`, plus per-frame `defect_<label>_ratio`, `frame_has_defect_<label>`, `structural_defects`, and `frame_has_structural_defect` columns to `results.parquet`. The HTML report includes a **Structural defects** panel listing detected defect types per frame.
 
+Defect inference gates CODEBRIM-backed concrete labels by surface/domain: `crack` applies everywhere, while `spalling`, `efflorescence`, `exposed_rebar`, and `corrosion` are thresholded only on concrete/bridge/building imagery and are suppressed on asphalt, unpaved, paving-stone, sett, gravel, and mud surfaces. Raw tile scores are still available as `tile_defect_<label>_prob_raw`; use `--no-defect-gating` on `analyze` or `assess` when deliberately inspecting concrete/structural imagery and raw thresholding is desired.
+
 The committed gallery image uses CrackAirport imagery for the crack case only. CODEBRIM bridge imagery is not committed because Zenodo record `2620293` reports license id `other-nc`; the non-crack bridge-defect results are shown in the metrics table in [`reports/RESULTS.md`](reports/RESULTS.md).
 
 ### Licensing & commercial use

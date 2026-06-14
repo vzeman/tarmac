@@ -19,7 +19,12 @@ from rich.console import Console
 from rich.table import Table
 from tqdm.auto import tqdm
 
-from tarmac.defect import DEFECT_LABELS
+from tarmac.defect import (
+    DEFECT_LABELS,
+    DEFECT_LABEL_APPLICABILITY,
+    infer_defect_domain,
+    is_defect_label_applicable,
+)
 from tarmac.embedding.embedder import DINOV3_MODEL, HFBackboneEmbedder
 from tarmac.crack.model import CrackHead
 from tarmac.crack.segment import segment_cracks
@@ -53,6 +58,7 @@ def analyze_path(
     region: str = "auto",
     crack_segmentation: bool = False,
     mm_per_pixel: float | None = None,
+    defect_gating: bool = True,
 ) -> dict[str, Any]:
     torch.set_num_threads(1)
     input_path = input_path.expanduser().resolve()
@@ -144,6 +150,7 @@ def analyze_path(
             region=chosen_region,
             crack_segmentation=run_crack_segmentation,
             mm_per_pixel=mm_per_pixel,
+            defect_gating=defect_gating,
         )
     finally:
         if temp_dir_ctx is not None:
@@ -170,6 +177,7 @@ def analyze_path(
         region=chosen_region,
         crack_segmentation=run_crack_segmentation,
         defect_detector=defect_detector,
+        defect_gating=defect_gating,
     )
     summary_path = out_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2) + "\n")
@@ -267,6 +275,7 @@ def analyze_frames(
     region: str = "lower_half",
     crack_segmentation: bool = False,
     mm_per_pixel: float | None = None,
+    defect_gating: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     frame_records: list[dict[str, Any]] = []
     tile_records: list[dict[str, Any]] = []
@@ -337,6 +346,11 @@ def analyze_frames(
         crack_prob = predict_crack_probability(embedding, crack_detector)
         crack_flag = bool(crack_prob >= float(crack_detector["threshold"])) if crack_detector else False
         defect_probs = predict_defect_probabilities(embedding, defect_detector)
+        defect_domain = infer_defect_domain(
+            source_path=str(item["source_path"]),
+            filename=str(item["filename"]),
+            surface_type=str(pred["surface_type"]),
+        )
         tile_record = {
             "frame_index": int(item["frame_index"]),
             "tile": item["kind"],
@@ -346,14 +360,30 @@ def analyze_frames(
             "image_width": int(item["source_width"]),
             "image_height": int(item["source_height"]),
             "region": region,
+            "defect_domain": defect_domain,
+            "defect_gating_enabled": bool(defect_gating),
             **pred,
         }
         if defect_detector is not None:
             thresholds = defect_detector["thresholds"]
             for label in defect_detector["labels"]:
-                prob = float(defect_probs[label])
+                raw_prob = float(defect_probs[label])
+                applicable = True
+                if defect_gating:
+                    applicable = is_defect_label_applicable(
+                        label=label,
+                        surface_type=str(pred["surface_type"]),
+                        domain=defect_domain,
+                        source_path=str(item["source_path"]),
+                        filename=str(item["filename"]),
+                    )
+                prob = raw_prob if applicable else 0.0
+                tile_record[f"tile_defect_{label}_prob_raw"] = raw_prob
+                tile_record[f"tile_defect_{label}_applicable"] = bool(applicable)
                 tile_record[f"tile_defect_{label}_prob"] = prob
-                tile_record[f"tile_defect_{label}"] = bool(prob >= float(thresholds[label]))
+                tile_record[f"tile_defect_{label}"] = bool(
+                    applicable and raw_prob >= float(thresholds[label])
+                )
         frame["tiles"].append(tile_record)
         tile_records.append(tile_record)
 
@@ -405,6 +435,7 @@ def analyze_frames(
             "tile_details": json.dumps(frame["tiles"]),
             "embedding": frame["embedding"].astype("float32"),
             "region": region,
+            "defect_gating_enabled": bool(defect_gating),
         }
         if defect_detector is not None:
             for label, ratio in defect_ratios.items():
@@ -600,6 +631,7 @@ def build_summary(
     region: str,
     crack_segmentation: bool,
     defect_detector: dict[str, Any] | None = None,
+    defect_gating: bool = True,
 ) -> dict[str, Any]:
     valid_quality = frames_df["predicted_quality"].dropna().astype(int)
     quality_distribution = {
@@ -637,6 +669,8 @@ def build_summary(
         "requested_region": requested_region,
         "region": region,
         "crack_segmentation": bool(crack_segmentation),
+        "defect_gating_enabled": bool(defect_gating),
+        "defect_label_applicability": DEFECT_LABEL_APPLICABILITY,
     }
     if structural_labels:
         summary["defect_head"] = defect_detector["checkpoint"] if defect_detector else str(Path("models/defect_head.pt"))

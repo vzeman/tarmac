@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from tarmac.defect import CONCRETE_SPECIFIC_DEFECT_LABELS, NON_CONCRETE_DEFECT_SURFACE_TYPES
+
 ROOT = Path(__file__).resolve().parents[1]
 INPUT_DIR = ROOT / "runs" / "smoke_assess_input"
 RUN_DIR = ROOT / "runs" / "smoke_assess"
@@ -95,11 +97,58 @@ def assert_outputs() -> None:
     frame = pd.read_parquet(assessment_parquet)
     for column in required:
         assert column in frame.columns, f"assessment.parquet missing {column}"
+    results = pd.read_parquet(RUN_DIR / "results.parquet")
+    tiles = pd.read_parquet(RUN_DIR / "tiles.parquet")
+    assert "unpaved" in set(results["surface_type"].astype(str)), "smoke set must include an unpaved frame"
+    airport_asphalt = results["filename"].astype(str).str.contains("crackairport", case=False) & (
+        results["surface_type"].astype(str) == "asphalt"
+    )
+    assert bool(airport_asphalt.any()), "smoke set must include CrackAirport asphalt frames"
+
+    non_concrete_tiles = tiles[
+        tiles["surface_type"].astype(str).isin(NON_CONCRETE_DEFECT_SURFACE_TYPES)
+    ]
+    non_concrete_results = results[
+        results["surface_type"].astype(str).isin(NON_CONCRETE_DEFECT_SURFACE_TYPES)
+    ]
+    non_concrete_assessment = frame[
+        frame["surface_type"].astype(str).isin(NON_CONCRETE_DEFECT_SURFACE_TYPES)
+    ]
+    assert not non_concrete_tiles.empty, "smoke set has no non-concrete tiles"
+    for label in CONCRETE_SPECIFIC_DEFECT_LABELS:
+        assert f"tile_defect_{label}_prob_raw" in tiles.columns, f"Missing raw tile probability for {label}"
+        assert f"tile_defect_{label}_applicable" in tiles.columns, f"Missing applicability flag for {label}"
+        assert not non_concrete_tiles[f"tile_defect_{label}"].fillna(False).astype(bool).any(), (
+            f"Non-concrete tiles emitted {label}"
+        )
+        assert not non_concrete_tiles[f"tile_defect_{label}_applicable"].fillna(False).astype(bool).any(), (
+            f"Non-concrete tiles marked {label} applicable"
+        )
+        assert float(non_concrete_tiles[f"tile_defect_{label}_prob"].fillna(0.0).max()) == 0.0, (
+            f"Non-concrete tiles kept gated {label} probability"
+        )
+        assert not non_concrete_results[f"frame_has_defect_{label}"].fillna(False).astype(bool).any(), (
+            f"Non-concrete frames emitted {label}"
+        )
+        assert float(non_concrete_results[f"defect_{label}_ratio"].fillna(0.0).max()) == 0.0, (
+            f"Non-concrete frames kept {label} ratio"
+        )
+        assert not non_concrete_assessment[f"defect_{label}"].fillna(False).astype(bool).any(), (
+            f"Assessment kept non-applicable {label}"
+        )
+    table_cols = [
+        "filename",
+        "surface_type",
+        "overall_condition_grade",
+        "repair_priority",
+        "key_defects",
+    ]
+    print(frame[table_cols].to_string(index=False))
     assert "Condition assessment" in report_html.read_text()
     print(
         f"smoke_assess ok: frames={len(records)} "
         f"mean_condition_grade={payload['summary']['mean_condition_grade']:.2f} "
-        f"report={report_html}"
+        f"non_concrete_concrete_defect_flags=0 report={report_html}"
     )
 
 

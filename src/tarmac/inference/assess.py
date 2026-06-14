@@ -14,7 +14,13 @@ import torch
 from rich.console import Console
 from rich.table import Table
 
-from tarmac.defect import DEFECT_LABELS
+from tarmac.defect import (
+    DEFECT_LABELS,
+    DEFECT_LABEL_APPLICABILITY,
+    STRUCTURAL_DEFECT_DOMAINS,
+    infer_defect_domain,
+    is_defect_label_applicable,
+)
 from tarmac.inference.analyze import analyze_path
 
 SEED = 42
@@ -180,7 +186,7 @@ REPAIR_PRIORITY_RULES: list[dict[str, Any]] = [
 ]
 
 REPAIR_PRIORITY_ORDER = {"none": 0, "monitor": 1, "plan_repair": 2, "urgent": 3}
-STRUCTURAL_DOMAINS = {"bridge", "building"}
+STRUCTURAL_DOMAINS = STRUCTURAL_DEFECT_DOMAINS
 
 
 def assess_path(
@@ -193,6 +199,7 @@ def assess_path(
     device: str = "cpu",
     region: str = "auto",
     mm_per_pixel: float | None = None,
+    defect_gating: bool = True,
 ) -> dict[str, Any]:
     """Run analyze, then aggregate visual condition and repair-priority proxy records."""
     _seed_everything(SEED)
@@ -212,6 +219,7 @@ def assess_path(
         region=region,
         crack_segmentation=True,
         mm_per_pixel=mm_per_pixel,
+        defect_gating=defect_gating,
     )
 
     results_path = out_dir / "results.parquet"
@@ -237,6 +245,8 @@ def assess_path(
             "seed": SEED,
             "device": device,
             "mm_per_pixel": mm_per_pixel,
+            "defect_gating_enabled": bool(defect_gating),
+            "defect_label_applicability": DEFECT_LABEL_APPLICABILITY,
             "pci_proxy_disclaimer": PCI_PROXY_DISCLAIMER,
             "visual_limitations": VISUAL_LIMITATION_NOTICE,
             "condition_grade_rules": CONDITION_GRADE_RULES,
@@ -258,9 +268,14 @@ def condition_record(row: dict[str, Any], mm_per_pixel: float | None = None) -> 
     surface_type = str(row.get("surface_type") or "unknown")
     quality_grade = _maybe_int(row.get("predicted_quality"))
     tiles = _tile_details(row.get("tile_details"))
-    defects = _defect_signals(row=row, tiles=tiles)
     crack_geometry = _crack_geometry(row=row, mm_per_pixel=mm_per_pixel)
     inferred_domain = infer_domain(row=row, surface_type=surface_type)
+    defects = _defect_signals(
+        row=row,
+        tiles=tiles,
+        surface_type=surface_type,
+        inferred_domain=inferred_domain,
+    )
     context = {
         "quality_grade": quality_grade,
         "defects": defects,
@@ -298,6 +313,7 @@ def condition_record(row: dict[str, Any], mm_per_pixel: float | None = None) -> 
         "inferred_domain": inferred_domain,
         "quality_grade": quality_grade,
         "confidence": _maybe_float(row.get("confidence")),
+        "defect_gating_enabled": _defect_gating_enabled(row),
         "defects": defects,
         "crack_geometry": crack_geometry,
         "overall_condition_grade": overall_grade,
@@ -341,25 +357,11 @@ def compute_repair_priority(context: dict[str, Any]) -> tuple[str, list[str]]:
 
 
 def infer_domain(row: dict[str, Any], surface_type: str) -> str:
-    source_path = str(row.get("source_path") or "").lower()
-    filename = str(row.get("filename") or "").lower()
-    source = f"{source_path}/{filename}"
-    if "codebrim" in source or "bridge" in source:
-        return "bridge"
-    if "building" in source or "wall" in source:
-        return "building"
-    if "sdnet2018" in source:
-        if "/d" in source or "deck" in source:
-            return "bridge"
-        if "/w" in source or "wall" in source:
-            return "building"
-        if "/p" in source or "pavement" in source:
-            return "pavement"
-    if "runway" in source or "crackairport" in source or "airport" in source:
-        return "runway"
-    if surface_type in {"asphalt", "concrete", "paving_stones", "sett", "unpaved"}:
-        return "pavement"
-    return "unknown"
+    return infer_defect_domain(
+        source_path=str(row.get("source_path") or ""),
+        filename=str(row.get("filename") or ""),
+        surface_type=surface_type,
+    )
 
 
 def build_rationale(
@@ -465,14 +467,22 @@ def repair_priority_rules_table(console: Console | None = None) -> None:
     console.print(table)
 
 
-def _defect_signals(row: dict[str, Any], tiles: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def _defect_signals(
+    row: dict[str, Any],
+    tiles: list[dict[str, Any]],
+    surface_type: str,
+    inferred_domain: str,
+) -> dict[str, dict[str, Any]]:
+    gating_enabled = _defect_gating_enabled(row)
     signals: dict[str, dict[str, Any]] = {}
     for label in DEFECT_LABELS:
         ratio_values: list[float] = []
         probability_values: list[float] = []
+        raw_probability_values: list[float] = []
+        applicable = True
         present = False
         if label == "crack":
-            present = bool(row.get("frame_has_crack", False)) or bool(row.get("frame_has_defect_crack", False))
+            present = _maybe_bool(row.get("frame_has_crack")) or _maybe_bool(row.get("frame_has_defect_crack"))
             ratio_values.extend(
                 value
                 for value in (
@@ -482,31 +492,120 @@ def _defect_signals(row: dict[str, Any], tiles: list[dict[str, Any]]) -> dict[st
                 if value is not None
             )
             for tile in tiles:
-                probability_values.extend(
-                    value
-                    for value in (
-                        _maybe_float(tile.get("tile_crack_prob")),
-                        _maybe_float(tile.get("tile_defect_crack_prob")),
-                    )
-                    if value is not None
-                )
+                for value in (
+                    _maybe_float(tile.get("tile_crack_prob")),
+                    _maybe_float(tile.get("tile_defect_crack_prob")),
+                    _maybe_float(tile.get("tile_defect_crack_prob_raw")),
+                ):
+                    if value is not None:
+                        probability_values.append(value)
+                        raw_probability_values.append(value)
         else:
-            present = bool(row.get(f"frame_has_defect_{label}", False))
-            ratio = _maybe_float(row.get(f"defect_{label}_ratio"))
-            if ratio is not None:
-                ratio_values.append(ratio)
+            applicable = _frame_label_applicable(
+                row=row,
+                label=label,
+                surface_type=surface_type,
+                inferred_domain=inferred_domain,
+                gating_enabled=gating_enabled,
+            )
+            tile_flags: list[bool] = []
+            tile_applicable_seen = False
             for tile in tiles:
+                raw_prob = _maybe_float(tile.get(f"tile_defect_{label}_prob_raw"))
                 prob = _maybe_float(tile.get(f"tile_defect_{label}_prob"))
+                if raw_prob is None:
+                    raw_prob = prob
+                if raw_prob is not None:
+                    raw_probability_values.append(raw_prob)
+                tile_applicable = _tile_label_applicable(
+                    tile=tile,
+                    label=label,
+                    fallback_surface=surface_type,
+                    fallback_domain=inferred_domain,
+                    gating_enabled=gating_enabled,
+                )
+                if not tile_applicable:
+                    continue
+                tile_applicable_seen = True
+                tile_flags.append(_maybe_bool(tile.get(f"tile_defect_{label}")))
+                if prob is not None:
+                    probability_values.append(prob)
+            applicable = bool(applicable or tile_applicable_seen)
+            if tile_flags:
+                ratio_values.append(float(np.mean(tile_flags)))
+                present = any(tile_flags)
+            elif applicable:
+                present = _maybe_bool(row.get(f"frame_has_defect_{label}"))
+                ratio = _maybe_float(row.get(f"defect_{label}_ratio"))
+                if ratio is not None:
+                    ratio_values.append(ratio)
+            else:
+                present = False
+            if applicable and not probability_values:
+                prob = _maybe_float(row.get(f"defect_{label}_ratio"))
                 if prob is not None:
                     probability_values.append(prob)
         tile_ratio = max(ratio_values) if ratio_values else 0.0
         probability = max(probability_values) if probability_values else tile_ratio
+        raw_probability = max(raw_probability_values) if raw_probability_values else probability
+        if not applicable:
+            tile_ratio = 0.0
+            probability = 0.0
+            present = False
         signals[label] = {
             "present": bool(present or tile_ratio > 0.0),
             "probability": float(probability),
+            "probability_raw": float(raw_probability),
             "tile_ratio": float(tile_ratio),
+            "applicable": bool(applicable),
         }
     return signals
+
+
+def _frame_label_applicable(
+    row: dict[str, Any],
+    label: str,
+    surface_type: str,
+    inferred_domain: str,
+    gating_enabled: bool,
+) -> bool:
+    if not gating_enabled:
+        return True
+    return is_defect_label_applicable(
+        label=label,
+        surface_type=surface_type,
+        domain=inferred_domain,
+        source_path=str(row.get("source_path") or ""),
+        filename=str(row.get("filename") or ""),
+    )
+
+
+def _tile_label_applicable(
+    tile: dict[str, Any],
+    label: str,
+    fallback_surface: str,
+    fallback_domain: str,
+    gating_enabled: bool,
+) -> bool:
+    if not gating_enabled:
+        return True
+    explicit = tile.get(f"tile_defect_{label}_applicable")
+    if explicit is not None:
+        return _maybe_bool(explicit)
+    return is_defect_label_applicable(
+        label=label,
+        surface_type=str(tile.get("surface_type") or fallback_surface),
+        domain=str(tile.get("defect_domain") or fallback_domain),
+    )
+
+
+def _defect_gating_enabled(row: dict[str, Any]) -> bool:
+    value = _clean_scalar(row.get("defect_gating_enabled"))
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
 
 
 def _crack_geometry(row: dict[str, Any], mm_per_pixel: float | None) -> dict[str, Any]:
@@ -610,6 +709,7 @@ def _flatten_record(record: dict[str, Any]) -> dict[str, Any]:
         "inferred_domain": record["inferred_domain"],
         "quality_grade": record["quality_grade"],
         "confidence": record["confidence"],
+        "defect_gating_enabled": record["defect_gating_enabled"],
         "overall_condition_grade": record["overall_condition_grade"],
         "pci_proxy_descriptor": record["pci_proxy_descriptor"],
         "repair_priority": record["repair_priority"],
@@ -625,7 +725,9 @@ def _flatten_record(record: dict[str, Any]) -> dict[str, Any]:
     for label, signal in record["defects"].items():
         flat[f"defect_{label}"] = bool(signal["present"])
         flat[f"defect_{label}_prob"] = float(signal["probability"])
+        flat[f"defect_{label}_prob_raw"] = float(signal["probability_raw"])
         flat[f"defect_{label}_tile_ratio"] = float(signal["tile_ratio"])
+        flat[f"defect_{label}_applicable"] = bool(signal["applicable"])
     for key, value in record["crack_geometry"].items():
         flat[f"crack_{key}"] = value
     return flat
@@ -659,6 +761,15 @@ def _maybe_float(value: Any) -> float | None:
     if not math.isfinite(number):
         return None
     return number
+
+
+def _maybe_bool(value: Any) -> bool:
+    value = _clean_scalar(value)
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _clean_scalar(value: Any) -> Any:

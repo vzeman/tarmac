@@ -4,6 +4,14 @@
 
 The defect head is a multi-label classifier trained on frozen active-backbone DINOv3 embeddings. It predicts crack, spalling, efflorescence, exposed rebar, and corrosion; pure `none` examples are used only as negatives.
 
+## Inference Applicability Gating
+
+`tarmac analyze` and `tarmac assess` now apply a surface/domain gate before thresholding defect labels. `crack` remains applicable to all surfaces. The CODEBRIM-backed non-crack labels (`spalling`, `efflorescence`, `exposed_rebar`, `corrosion`) are only applicable on concrete/structural imagery: predicted `surface_type=concrete` or inferred bridge/building domain. They are explicitly suppressed on non-concrete surface predictions such as `asphalt`, `unpaved`, `paving_stones`, `sett`, `gravel`, and `mud`.
+
+When gating is enabled, tile outputs preserve raw model scores in `tile_defect_<label>_prob_raw`, set the gated probability `tile_defect_<label>_prob` to `0.0` for non-applicable labels, set `tile_defect_<label>` to `False`, and expose `tile_defect_<label>_applicable`. Frame aggregation, condition grade, and repair priority use only the gated/applicable flags. This mitigates CODEBRIM-domain over-firing such as phantom spalling, exposed rebar, or corrosion on asphalt and unpaved roads. The deeper fix is to add more non-concrete negative training data in a future defect-head refresh.
+
+Use `--no-defect-gating` with `tarmac analyze` or `tarmac assess` only when intentionally inspecting concrete/structural imagery and raw label thresholding is desired.
+
 Checkpoint: `models/defect_head.pt`
 Embeddings: `data/processed/defect_embeddings.parquet`
 Best validation macro-AP: `0.9654`
