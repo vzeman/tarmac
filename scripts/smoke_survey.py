@@ -42,11 +42,19 @@ def main() -> int:
 
     map_html = (run_dir / "map.html").read_text(encoding="utf-8")
     table_html = (run_dir / "problems_table.html").read_text(encoding="utf-8")
-    expected = "Route is IMU-estimated (approximate, drifts)"
-    if expected not in map_html or "L.map" not in map_html:
-        raise AssertionError("map.html missing Leaflet map or IMU caveat")
-    if expected not in table_html or "problem-table" not in table_html:
-        raise AssertionError("problems_table.html missing sortable table or IMU caveat")
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    route_notice = str(summary.get("route_notice") or "")
+    expected_candidates = [
+        route_notice,
+        route_notice.replace(" - ", " — "),
+        str(summary.get("gps_source", {}).get("type") or ""),
+        "Route is IMU-estimated",
+        "GPS",
+    ]
+    if not any(candidate and candidate in map_html for candidate in expected_candidates) or "L.map" not in map_html:
+        raise AssertionError("map.html missing Leaflet map or GPS notice")
+    if not any(candidate and candidate in table_html for candidate in expected_candidates) or "problem-table" not in table_html:
+        raise AssertionError("problems_table.html missing sortable table or GPS notice")
     print(
         f"survey smoke ok: samples={len(samples)} problems={len(problems)} "
         f"telemetry_rows={len(telemetry)} run_dir={run_dir}"

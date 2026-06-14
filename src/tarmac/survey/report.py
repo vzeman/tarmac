@@ -57,30 +57,28 @@ def _map_html(
             "speed_kmh": _maybe_float(getattr(row, "speed_kmh", None)),
         }
         for row in samples.itertuples()
-        if pd.notna(getattr(row, "lat", None)) and pd.notna(getattr(row, "lon", None))
+        if _valid_lat_lon(getattr(row, "lat", None), getattr(row, "lon", None))
     ]
     telemetry_points = [
         [float(row.lat), float(row.lon)]
         for row in telemetry.itertuples()
-        if pd.notna(getattr(row, "lat", None)) and pd.notna(getattr(row, "lon", None))
+        if _valid_lat_lon(getattr(row, "lat", None), getattr(row, "lon", None))
     ]
     start = summary.get("start_location", {})
-    start_point = {
-        "lat": float(start.get("lat", route_points[0]["lat"] if route_points else 0.0)),
-        "lon": float(start.get("lon", route_points[0]["lon"] if route_points else 0.0)),
-        "alt_m": start.get("alt_m"),
-        "source": start.get("source", "unknown"),
-    }
+    start_point = _start_point(start, route_points)
     problem_points = [_problem_payload(row, out_dir=out_dir) for row in problems.itertuples()]
     speed_warning = _speed_warning(summary)
+    route_notice = _route_notice(summary)
     data = {
         "route": route_points,
         "telemetryRoute": telemetry_points[:: max(1, len(telemetry_points) // 2000)] if telemetry_points else [],
         "problems": problem_points,
         "start": start_point,
         "qualityColors": QUALITY_COLORS,
-        "notice": "Route is IMU-estimated (approximate, drifts) — no continuous GPS in source.",
+        "notice": route_notice,
         "speedWarning": speed_warning,
+        "hasGeo": bool(route_points or telemetry_points or start_point),
+        "speedLabel": str(summary.get("speed_label", "")),
     }
     payload = json.dumps(data, ensure_ascii=False)
     title = html.escape(f"Tarmac survey map - {summary.get('run_name', 'survey')}")
@@ -105,7 +103,7 @@ def _map_html(
   {dialog_css()}
 </head>
 <body>
-  <div class="banner">Route is IMU-estimated (approximate, drifts) — no continuous GPS in source.{f" {html.escape(speed_warning)}" if speed_warning else ""}</div>
+  <div class="banner">{html.escape(route_notice)}{f" {html.escape(speed_warning)}" if speed_warning else ""}</div>
   <div id="map"></div>
   {dialog_html(include_style=False)}
   <script>
@@ -128,13 +126,16 @@ def _map_html(
     baseRoute.addTo(map);
     qualitySegments.addTo(map);
 
-    const startMarker = L.marker([data.start.lat, data.start.lon], {{
-      title: 'START'
-    }}).bindPopup(`<b>START</b><br>${{data.start.lat.toFixed(6)}}, ${{data.start.lon.toFixed(6)}}<br>${{data.start.source}}`);
-    startMarker.addTo(map);
+    if (data.start) {{
+      const startMarker = L.marker([data.start.lat, data.start.lon], {{
+        title: 'START'
+      }}).bindPopup(`<b>START</b><br>${{data.start.lat.toFixed(6)}}, ${{data.start.lon.toFixed(6)}}<br>${{data.start.source}}`);
+      startMarker.addTo(map);
+    }}
 
     const problemLayer = L.layerGroup();
     for (const p of data.problems) {{
+      if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
       const marker = L.circleMarker([p.lat, p.lon], {{
         radius: 7,
         color: '#9f1239',
@@ -148,7 +149,7 @@ def _map_html(
       ) : '';
       marker.bindPopup(`
         <div class="popup-title">${{p.timestamp_label}} · quality ${{p.quality_grade ?? 'n/a'}}</div>
-        <div><b>Speed est. (IMU, unreliable):</b> ${{p.speed_kmh.toFixed(1)}} km/h</div>
+        <div><b>Speed ${{data.speedLabel}}:</b> ${{p.speed_kmh.toFixed(1)}} km/h</div>
         <div><b>Location:</b> ${{p.lat.toFixed(6)}}, ${{p.lon.toFixed(6)}}</div>
         <div><b>Issues:</b> ${{p.issues.join(', ') || 'none'}}</div>
         <div><b>Image:</b> ${{tarmacPopupImageLink(p, `<span class="popup-file">${{tarmacEscapeHtml(p.filename)}}</span>`)}}</div>
@@ -170,8 +171,10 @@ def _map_html(
     for (const p of data.route) bounds.push([p.lat, p.lon]);
     if (bounds.length) {{
       map.fitBounds(bounds, {{ padding: [30, 30] }});
-    }} else {{
+    }} else if (data.start) {{
       map.setView([data.start.lat, data.start.lon], 16);
+    }} else {{
+      map.setView([0, 0], 2);
     }}
 
     const legend = L.control({{ position: 'bottomright' }});
@@ -179,7 +182,7 @@ def _map_html(
       const div = L.DomUtil.create('div', 'legend');
       div.innerHTML = '<b>Quality grade</b><br>' +
         [1,2,3,4,5].map(q => `<span class="swatch" style="background:${{data.qualityColors[q]}}"></span>${{q}}`).join('<br>') +
-        '<hr><b>Route caveat</b><br>IMU-estimated, approximate, drifting';
+        '<hr><b>GPS source</b><br>' + tarmacEscapeHtml(data.notice);
       return div;
     }};
     legend.addTo(map);
@@ -239,7 +242,7 @@ def _table_html(problems: pd.DataFrame, summary: dict[str, Any], *, out_dir: Pat
             "<tr>"
             f"<td data-sort='{float(payload['t']):.3f}'>{html.escape(payload['timestamp_label'])}</td>"
             f"<td data-sort='{float(payload['speed_kmh']):.3f}'>{float(payload['speed_kmh']):.1f}</td>"
-            f"<td>{payload['lat']:.6f}, {payload['lon']:.6f}</td>"
+            f"<td>{html.escape(_format_lat_lon(payload['lat'], payload['lon']))}</td>"
             f"<td>{html.escape(', '.join(payload['issues']) or 'none')}</td>"
             f"<td data-sort='{payload['quality_grade'] if payload['quality_grade'] is not None else 99}'>{payload['quality_grade'] if payload['quality_grade'] is not None else 'n/a'}</td>"
             f"<td>{html.escape(str(payload['surface_type']))}</td>"
@@ -249,6 +252,8 @@ def _table_html(problems: pd.DataFrame, summary: dict[str, Any], *, out_dir: Pat
     body = "\n".join(rows) if rows else "<tr><td colspan='7'>No problem frames detected.</td></tr>"
     title = html.escape(f"Tarmac survey problem table - {summary.get('run_name', 'survey')}")
     speed_warning = _speed_warning(summary)
+    route_notice = _route_notice(summary)
+    speed_label = html.escape(str(summary.get("speed_label", "")))
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -272,12 +277,12 @@ def _table_html(problems: pd.DataFrame, summary: dict[str, Any], *, out_dir: Pat
 <body>
   <header><h1>Problem table</h1></header>
   <main>
-    <div class="banner">Route is IMU-estimated (approximate, drifts) — no continuous GPS in source.{f" {html.escape(speed_warning)}" if speed_warning else ""}</div>
+    <div class="banner">{html.escape(route_notice)}{f" {html.escape(speed_warning)}" if speed_warning else ""}</div>
     <table id="problem-table">
       <thead>
         <tr>
           <th>timestamp</th>
-          <th>speed est. (IMU, unreliable) km/h</th>
+          <th>speed {speed_label} km/h</th>
           <th>lat,lon</th>
           <th>issue(s)</th>
           <th>quality</th>
@@ -319,8 +324,9 @@ def _index_html(summary: dict[str, Any]) -> str:
     stats = [
         ("Samples analyzed", summary.get("samples_analyzed", 0)),
         ("Problems saved", summary.get("problems_found", 0)),
-        ("Mean speed est. (IMU, unreliable) km/h", f"{float(summary.get('mean_speed_kmh', 0.0)):.1f}"),
+        (f"Mean speed {summary.get('speed_label', '')} km/h", f"{float(summary.get('mean_speed_kmh', 0.0)):.1f}"),
         ("Confirmed cracks", summary.get("confirmed_crack_count", summary.get("crack_count_after_confirmation", 0))),
+        ("GPS source", summary.get("gps_source", {}).get("type", "unknown")),
         ("Telemetry", summary.get("telemetry_parse", {}).get("status", "unknown")),
     ]
     stats_html = "\n".join(
@@ -329,6 +335,7 @@ def _index_html(summary: dict[str, Any]) -> str:
     run_name = html.escape(str(summary.get("run_name", "survey")))
     speed_warning = _speed_warning(summary)
     warning_html = f'<div class="banner">{html.escape(speed_warning)}</div>' if speed_warning else ""
+    route_notice = html.escape(_route_notice(summary))
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -345,7 +352,7 @@ def _index_html(summary: dict[str, Any]) -> str:
 <body>
   <main>
     <h1>Tarmac road survey</h1>
-    <div class="banner">Route is IMU-estimated (approximate, drifts) — no continuous GPS in source.</div>
+    <div class="banner">{route_notice}</div>
     {warning_html}
     <ul>{stats_html}</ul>
     <p><a href="map.html">Open map</a></p>
@@ -368,8 +375,8 @@ def _problem_payload(row: Any, *, out_dir: Path) -> dict[str, Any]:
         "t": float(getattr(row, "t", 0.0)),
         "timestamp_label": _timestamp_label(float(getattr(row, "t", 0.0))),
         "speed_kmh": float(getattr(row, "speed_kmh", 0.0) or 0.0),
-        "lat": float(getattr(row, "lat", 0.0) or 0.0),
-        "lon": float(getattr(row, "lon", 0.0) or 0.0),
+        "lat": _json_float_or_none(getattr(row, "lat", None)),
+        "lon": _json_float_or_none(getattr(row, "lon", None)),
         "issues": issues,
         "quality_grade": _maybe_int(getattr(row, "quality_grade", None)),
         "surface_type": str(getattr(row, "surface_type", "unknown") or "unknown"),
@@ -395,6 +402,55 @@ def _resolve_survey_path(out_dir: Path, value: str) -> Path | None:
     if not path.is_absolute():
         path = out_dir / path
     return path.resolve()
+
+
+def _start_point(start: Any, route_points: list[dict[str, Any]]) -> dict[str, Any] | None:
+    start = start if isinstance(start, dict) else {}
+    lat = _maybe_float(start.get("lat"))
+    lon = _maybe_float(start.get("lon"))
+    if lat is None or lon is None:
+        if route_points:
+            lat = _maybe_float(route_points[0].get("lat"))
+            lon = _maybe_float(route_points[0].get("lon"))
+        if lat is None or lon is None:
+            return None
+    return {
+        "lat": lat,
+        "lon": lon,
+        "alt_m": start.get("alt_m"),
+        "source": start.get("source", "unknown"),
+    }
+
+
+def _route_notice(summary: dict[str, Any]) -> str:
+    notice = summary.get("route_notice")
+    if notice:
+        return str(notice)
+    source_type = str(summary.get("gps_source", {}).get("type", ""))
+    if source_type == "sidecar":
+        return "GPS route from sidecar track."
+    if source_type == "embedded_video":
+        return "GPS route from embedded timed metadata."
+    if source_type == "none":
+        return "No GPS track was found; map route is omitted."
+    return ROUTE_NOTICE
+
+
+def _valid_lat_lon(lat: Any, lon: Any) -> bool:
+    return _maybe_float(lat) is not None and _maybe_float(lon) is not None
+
+
+def _json_float_or_none(value: Any) -> float | None:
+    number = _maybe_float(value)
+    return float(number) if number is not None else None
+
+
+def _format_lat_lon(lat: Any, lon: Any) -> str:
+    lat_value = _maybe_float(lat)
+    lon_value = _maybe_float(lon)
+    if lat_value is None or lon_value is None:
+        return "n/a"
+    return f"{lat_value:.6f}, {lon_value:.6f}"
 
 
 def _image_link(
@@ -427,6 +483,8 @@ def _speed_warning(summary: dict[str, Any]) -> str | None:
     warning = summary.get("speed_warning")
     if warning:
         return str(warning)
+    if str(summary.get("gps_source", {}).get("type", "")) != "imu_deadreckon":
+        return None
     try:
         mean_speed = float(summary.get("mean_speed_kmh", 0.0))
     except (TypeError, ValueError):

@@ -34,12 +34,19 @@ from tarmac.inference.analyze import (
 from tarmac.inference.assess import SEED, condition_record
 from tarmac.survey.report import build_reports
 from tarmac.survey.stream import FrameSample, stream_sampled_frames, timestamp_sequence
+from tarmac.survey.gps_sources import (
+    GpsSource,
+    GpsSourceType,
+    detect_gps_source,
+    gps_source_status,
+    interpolate_track,
+    no_geo_track,
+    route_notice_for_source,
+)
 from tarmac.survey.telemetry import (
     ROUTE_NOTICE,
     dead_reckon,
     extract_imu,
-    interpolate_track,
-    start_location,
     video_duration,
     write_telemetry_metadata,
 )
@@ -88,6 +95,8 @@ def run_survey(
     min_crack_length_px: int = DEFAULT_MIN_CRACK_COMPONENT_LENGTH_PX,
     device: str = "cpu",
     batch_size: int = 8,
+    gps_sidecar: Path | None = None,
+    gps_source: str = "auto",
 ) -> dict[str, Any]:
     """Run the GPS/IMU road survey with the active fine-tuned DINOv3 pipeline."""
     _seed_everything(SEED)
@@ -115,23 +124,41 @@ def run_survey(
     effective_duration = max(0.0, effective_duration)
     timestamps = timestamp_sequence(duration, fps=fps, clip_seconds=clip_seconds)
 
-    start = start_location(video_path)
+    gps = detect_gps_source(video_path, sidecar=gps_sidecar, source_hint=gps_source)
+    route_notice = route_notice_for_source(gps)
     imu_work_dir = out_dir / "_tmp_imu"
-    imu = extract_imu(
-        video_path,
-        work_dir=imu_work_dir,
-        clip_seconds=effective_duration if clip_seconds is not None else None,
-        duration_seconds=effective_duration,
-    )
-    telemetry = dead_reckon(imu, start=start, duration_seconds=effective_duration)
+    imu_payload: dict[str, Any] | None = None
+    if gps.source_type == GpsSourceType.IMU_DEADRECKON:
+        if gps.start is None:
+            raise RuntimeError("IMU dead-reckoning requires a start GPS point.")
+        imu = extract_imu(
+            video_path,
+            work_dir=imu_work_dir,
+            clip_seconds=effective_duration if clip_seconds is not None else None,
+            duration_seconds=effective_duration,
+        )
+        telemetry = dead_reckon(imu, start=gps.start, duration_seconds=effective_duration)
+        telemetry["notice"] = route_notice
+        imu_payload = imu.as_dict()
+    elif gps.track is not None:
+        telemetry = gps.track.copy()
+        telemetry = telemetry[telemetry["t"].astype(float) <= effective_duration].reset_index(drop=True)
+        if telemetry.empty:
+            telemetry = gps.track.copy()
+        telemetry["notice"] = route_notice
+    else:
+        telemetry = no_geo_track(effective_duration, start=gps.start, reason=gps.reason)
+        telemetry["notice"] = route_notice
+    telemetry_parse = gps_source_status(gps, telemetry_parse=imu_payload)
     telemetry_path = out_dir / "telemetry.parquet"
     telemetry.to_parquet(telemetry_path, index=False)
     write_telemetry_metadata(
         out_dir,
         {
-            "start_location": start.as_dict(),
-            "telemetry_parse": imu.as_dict(),
-            "route_notice": ROUTE_NOTICE,
+            "gps_source": gps.as_dict(),
+            "start_location": gps.start.as_dict() if gps.start is not None else None,
+            "telemetry_parse": telemetry_parse,
+            "route_notice": route_notice,
         },
     )
     if imu_work_dir.exists():
@@ -212,8 +239,9 @@ def run_survey(
         crack_confirmation=crack_confirmation,
         device=device,
         context=context,
-        start=start.as_dict(),
-        imu=imu.as_dict(),
+        gps=gps,
+        route_notice=route_notice,
+        telemetry_parse=telemetry_parse,
         telemetry=telemetry,
         samples=samples,
         problems=problems,
@@ -240,8 +268,10 @@ def print_survey_summary(summary: dict[str, Any], console: Console | None = None
     table.add_column("Value")
     table.add_row("Samples analyzed", str(summary.get("samples_analyzed", 0)))
     table.add_row("Problems found", str(summary.get("problems_found", 0)))
+    gps_source = summary.get("gps_source", {})
+    table.add_row("GPS source", f"{gps_source.get('type', 'unknown')} - {gps_source.get('reason', '')}")
     table.add_row(
-        "Mean speed est. (IMU, unreliable)",
+        f"Mean speed {summary.get('speed_label', '')}".strip(),
         f"{float(summary.get('mean_speed_kmh', 0.0)):.1f} km/h",
     )
     table.add_row("Confirmed cracks", str(summary.get("confirmed_crack_count", 0)))
@@ -268,7 +298,7 @@ def print_survey_summary(summary: dict[str, Any], console: Console | None = None
             preview_table.add_row(
                 str(row.get("timestamp")),
                 f"{float(row.get('speed_kmh', 0.0)):.1f}",
-                f"{float(row.get('lat', 0.0)):.6f}, {float(row.get('lon', 0.0)):.6f}",
+                _format_lat_lon(row.get("lat"), row.get("lon")),
                 ", ".join(row.get("issues", [])),
                 str(row.get("quality_grade")),
                 str(row.get("surface_type")),
@@ -466,7 +496,7 @@ def _sample_record(
         "problem_image": "",
         "thumbnail_image": "",
         "region": region,
-        "route_notice": ROUTE_NOTICE,
+        "route_notice": str(telemetry_row.get("route_notice") or ROUTE_NOTICE),
         **assessment,
     }
     for label in DEFECT_LABELS:
@@ -655,21 +685,25 @@ def _write_geojson(
     route_coords = [
         [float(row.lon), float(row.lat)]
         for row in telemetry.itertuples()
-        if pd.notna(getattr(row, "lat", None)) and pd.notna(getattr(row, "lon", None))
+        if _valid_lat_lon(getattr(row, "lat", None), getattr(row, "lon", None))
     ]
-    features: list[dict[str, Any]] = [
-        {
-            "type": "Feature",
-            "properties": {
-                "name": "IMU-estimated route",
-                "approximate": True,
-                "notice": ROUTE_NOTICE,
-                "telemetry_source": str(telemetry["telemetry_source"].iloc[0]) if not telemetry.empty else "unknown",
-            },
-            "geometry": {"type": "LineString", "coordinates": route_coords},
-        }
-    ]
+    features: list[dict[str, Any]] = []
+    if len(route_coords) >= 2:
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "name": "Survey route",
+                    "approximate": bool(telemetry["route_approximate"].iloc[0]) if not telemetry.empty else False,
+                    "notice": str(telemetry["notice"].iloc[0]) if "notice" in telemetry and not telemetry.empty else "",
+                    "telemetry_source": str(telemetry["telemetry_source"].iloc[0]) if not telemetry.empty else "unknown",
+                },
+                "geometry": {"type": "LineString", "coordinates": route_coords},
+            }
+        )
     for row in problems.itertuples():
+        lat = getattr(row, "lat", None)
+        lon = getattr(row, "lon", None)
         features.append(
             {
                 "type": "Feature",
@@ -691,10 +725,11 @@ def _write_geojson(
                     ),
                     "crack_confirmation_reason": str(getattr(row, "crack_confirmation_reason", "")),
                 },
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [float(getattr(row, "lon", 0.0)), float(getattr(row, "lat", 0.0))],
-                },
+                "geometry": (
+                    {"type": "Point", "coordinates": [float(lon), float(lat)]}
+                    if _valid_lat_lon(lat, lon)
+                    else None
+                ),
             }
         )
     path = out_dir / "track.geojson"
@@ -714,8 +749,9 @@ def _build_summary(
     crack_confirmation: CrackConfirmationConfig,
     device: str,
     context: SurveyModelContext | None,
-    start: dict[str, Any],
-    imu: dict[str, Any],
+    gps: GpsSource,
+    route_notice: str,
+    telemetry_parse: dict[str, Any],
     telemetry: pd.DataFrame,
     samples: pd.DataFrame,
     problems: pd.DataFrame,
@@ -739,8 +775,8 @@ def _build_summary(
             {
                 "timestamp": str(getattr(row, "timestamp", "")),
                 "speed_kmh": float(getattr(row, "speed_kmh", 0.0)),
-                "lat": float(getattr(row, "lat", 0.0)),
-                "lon": float(getattr(row, "lon", 0.0)),
+                "lat": _json_float_or_none(getattr(row, "lat", None)),
+                "lon": _json_float_or_none(getattr(row, "lon", None)),
                 "issues": _json_list(getattr(row, "issues", "[]")),
                 "quality_grade": _maybe_int(getattr(row, "quality_grade", None)),
                 "surface_type": str(getattr(row, "surface_type", "unknown")),
@@ -752,6 +788,7 @@ def _build_summary(
             }
         )
     mean_speed_kmh = float(samples["speed_kmh"].mean()) if len(samples) else 0.0
+    speed_label = _speed_label(gps.source_type)
     return {
         "run_name": out_dir.name,
         "input_path": str(video_path),
@@ -774,9 +811,10 @@ def _build_summary(
         "active_suffix": context.active_suffix if context else None,
         "checkpoint": context.checkpoint if context else None,
         "region": context.region if context else None,
-        "start_location": start,
-        "route_notice": ROUTE_NOTICE,
-        "telemetry_parse": imu,
+        "gps_source": gps.as_dict(),
+        "start_location": gps.start.as_dict() if gps.start is not None else None,
+        "route_notice": route_notice,
+        "telemetry_parse": telemetry_parse,
         "telemetry_parquet": str(telemetry_path),
         "samples_parquet": str(samples_path),
         "problems_parquet": str(problems_path),
@@ -786,8 +824,12 @@ def _build_summary(
         "problems_found": int(len(problems)),
         "confirmed_crack_count": crack_count,
         "mean_speed_kmh": mean_speed_kmh,
-        "speed_label": "est. (IMU, unreliable)",
-        "speed_warning": _speed_warning(mean_speed_kmh, sample_count=len(samples)),
+        "speed_label": speed_label,
+        "speed_warning": _speed_warning(
+            mean_speed_kmh,
+            sample_count=len(samples),
+            gps_source_type=gps.source_type.value,
+        ),
         "telemetry_mean_speed_kmh": float(telemetry["speed_kmh"].mean()) if len(telemetry) else 0.0,
         "quality_distribution": dict(sorted(quality_counts.items())),
         "problem_issue_counts": dict(sorted(issue_counts.items())),
@@ -906,6 +948,7 @@ def confirm_survey_problems(
     issue_counts = _issue_counts(confirmed)
     raw_issue_counts = _issue_counts(problems)
     mean_speed_kmh = float(samples["speed_kmh"].mean()) if len(samples) and "speed_kmh" in samples else 0.0
+    gps_source_type = str(summary.get("gps_source", {}).get("type", GpsSourceType.IMU_DEADRECKON.value))
     summary.update(
         {
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -934,8 +977,12 @@ def confirm_survey_problems(
             "track_geojson": str(track_path),
             "problem_preview": _problem_preview(confirmed),
             "mean_speed_kmh": mean_speed_kmh,
-            "speed_label": "est. (IMU, unreliable)",
-            "speed_warning": _speed_warning(mean_speed_kmh, sample_count=len(samples)),
+            "speed_label": summary.get("speed_label") or _speed_label(gps_source_type),
+            "speed_warning": _speed_warning(
+                mean_speed_kmh,
+                sample_count=len(samples),
+                gps_source_type=gps_source_type,
+            ),
         }
     )
     summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
@@ -1004,8 +1051,8 @@ def _problem_preview(problems: pd.DataFrame, *, limit: int = 8) -> list[dict[str
             {
                 "timestamp": str(getattr(row, "timestamp", "")),
                 "speed_kmh": float(getattr(row, "speed_kmh", 0.0)),
-                "lat": float(getattr(row, "lat", 0.0)),
-                "lon": float(getattr(row, "lon", 0.0)),
+                "lat": _json_float_or_none(getattr(row, "lat", None)),
+                "lon": _json_float_or_none(getattr(row, "lon", None)),
                 "issues": _json_list(getattr(row, "issues", "[]")),
                 "quality_grade": _maybe_int(getattr(row, "quality_grade", None)),
                 "surface_type": str(getattr(row, "surface_type", "unknown")),
@@ -1123,6 +1170,25 @@ def _maybe_bool(value: Any) -> bool:
     return bool(value)
 
 
+def _valid_lat_lon(lat: Any, lon: Any) -> bool:
+    lat_value = _maybe_float(lat)
+    lon_value = _maybe_float(lon)
+    return lat_value is not None and lon_value is not None
+
+
+def _json_float_or_none(value: Any) -> float | None:
+    number = _maybe_float(value)
+    return float(number) if number is not None else None
+
+
+def _format_lat_lon(lat: Any, lon: Any) -> str:
+    lat_value = _maybe_float(lat)
+    lon_value = _maybe_float(lon)
+    if lat_value is None or lon_value is None:
+        return "n/a"
+    return f"{lat_value:.6f}, {lon_value:.6f}"
+
+
 def _seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -1130,7 +1196,18 @@ def _seed_everything(seed: int) -> None:
     torch.set_num_threads(1)
 
 
-def _speed_warning(mean_speed_kmh: float, *, sample_count: int) -> str | None:
+def _speed_label(gps_source_type: GpsSourceType | str | None) -> str:
+    value = gps_source_type.value if isinstance(gps_source_type, GpsSourceType) else str(gps_source_type or "")
+    if value == GpsSourceType.IMU_DEADRECKON.value:
+        return "est. (IMU, unreliable)"
+    if value == GpsSourceType.NONE.value:
+        return "(no GPS)"
+    return "(GPS)"
+
+
+def _speed_warning(mean_speed_kmh: float, *, sample_count: int, gps_source_type: str | None = None) -> str | None:
+    if gps_source_type != GpsSourceType.IMU_DEADRECKON.value:
+        return None
     if sample_count > 1 and mean_speed_kmh < 5.0:
         return (
             "Mean IMU-estimated speed is below 5 km/h for this moving survey; "

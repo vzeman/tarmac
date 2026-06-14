@@ -983,6 +983,16 @@ def assess(
 def survey_cmd(
     video: Path = typer.Argument(..., help="GPS/IMU dashcam-style video to survey."),
     out: Path | None = typer.Option(None, "--out", "-o", help="Output survey run directory."),
+    gps_sidecar: Path | None = typer.Option(
+        None,
+        "--gps-sidecar",
+        help="Explicit GPS sidecar (.track.json, .gpx, or DJI .srt).",
+    ),
+    gps_source: str = typer.Option(
+        "auto",
+        "--gps-source",
+        help="GPS source mode: auto, embedded, sidecar, imu, or none.",
+    ),
     fps: float = typer.Option(1.0, "--fps", help="Seek-sampled frame rate in frames per second."),
     clip_seconds: float | None = typer.Option(None, "--clip-seconds", help="Limit processing to the first N seconds."),
     quality_threshold: int = typer.Option(
@@ -1020,6 +1030,8 @@ def survey_cmd(
         min_crack_area=min_crack_area,
         min_crack_length_px=min_crack_length_px,
         device=device,
+        gps_sidecar=gps_sidecar,
+        gps_source=gps_source,
     )
     print_survey_summary(summary, console)
 

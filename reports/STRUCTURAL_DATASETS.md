@@ -43,3 +43,7 @@ CrackForest/CFD now provides the pavement side of the expanded crack-segmentatio
 5. Mendeley 5y9wdsg2zt: inspect manually before integration because it appears in the verified source list, but no confirmed claim establishes its size, annotations, license, or label schema.
 
 **Engineering interpretation:** For bridges/buildings, CODEBRIM should come before SDNET2018 because multi-defect labels teach more structural-condition vocabulary. SDNET2018 should still be valuable for contrastive pretraining and crack robustness, but it cannot supervise masks, boxes, or severity. For pavement segmentation, CrackForest/CFD should precede RDD2022 if the immediate goal is pixel-level crack geometry; RDD2022 should precede CFD if the immediate goal is YOLO-style road-damage detection.
+
+## Survey GPS Source Note
+
+`tarmac survey` now treats GPS as a source-selection problem instead of assuming every road video is an iPhone IMU clip. The survey pipeline checks, in order: an explicit `--gps-sidecar`; same-basename RoadSurvey Recorder `.track.json` or `.gpx`; embedded/drone timed GPS including DJI `.SRT`, embedded subtitle streams, GoPro GPMF via ExifTool, and generic ExifTool timed GPS samples; Apple-style IMU dead-reckoning anchored at one start GPS point; and finally no-geo. No-geo runs still produce analysis outputs and timestamp-based problem tables, but maps omit the route unless a single start point exists.
