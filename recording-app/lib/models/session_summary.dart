@@ -13,6 +13,8 @@ class SessionSummary {
     required this.imuSampleCount,
     required this.totalBytes,
     required this.mode,
+    this.storageLocation = 'internal',
+    this.storageAvailable = true,
     this.startLat,
     this.startLon,
     this.endLat,
@@ -32,10 +34,46 @@ class SessionSummary {
   final int imuSampleCount;
   final int totalBytes;
   final String mode;
+  final String storageLocation;
+  final bool storageAvailable;
   final double? startLat;
   final double? startLon;
   final double? endLat;
   final double? endLon;
+
+  bool get isExternal => storageLocation == 'external';
+
+  SessionSummary copyWith({
+    String? directoryPath,
+    String? videoPath,
+    String? sidecarPath,
+    String? gpxPath,
+    int? totalBytes,
+    String? storageLocation,
+    bool? storageAvailable,
+  }) {
+    return SessionSummary(
+      id: id,
+      directoryPath: directoryPath ?? this.directoryPath,
+      videoPath: videoPath ?? this.videoPath,
+      sidecarPath: sidecarPath ?? this.sidecarPath,
+      gpxPath: gpxPath ?? this.gpxPath,
+      startedAtUtc: startedAtUtc,
+      endedAtUtc: endedAtUtc,
+      durationMs: durationMs,
+      frameCount: frameCount,
+      gpsSampleCount: gpsSampleCount,
+      imuSampleCount: imuSampleCount,
+      totalBytes: totalBytes ?? this.totalBytes,
+      mode: mode,
+      storageLocation: storageLocation ?? this.storageLocation,
+      storageAvailable: storageAvailable ?? this.storageAvailable,
+      startLat: startLat,
+      startLon: startLon,
+      endLat: endLat,
+      endLon: endLon,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -52,6 +90,7 @@ class SessionSummary {
       'imu_sample_count': imuSampleCount,
       'total_bytes': totalBytes,
       'mode': mode,
+      'storage_location': storageLocation,
       'start_lat': startLat,
       'start_lon': startLon,
       'end_lat': endLat,
@@ -74,6 +113,7 @@ class SessionSummary {
       imuSampleCount: _readInt(json['imu_sample_count']),
       totalBytes: _readInt(json['total_bytes']),
       mode: json['mode']?.toString() ?? 'continuous',
+      storageLocation: _readStorageLocation(json['storage_location']),
       startLat: _readDouble(json['start_lat']),
       startLon: _readDouble(json['start_lon']),
       endLat: _readDouble(json['end_lat']),
@@ -102,4 +142,8 @@ double? _readDouble(Object? value) {
     return value.toDouble();
   }
   return null;
+}
+
+String _readStorageLocation(Object? value) {
+  return value?.toString() == 'external' ? 'external' : 'internal';
 }

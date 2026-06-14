@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/storage_service.dart';
 import '../settings/app_settings.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -7,10 +8,12 @@ class SettingsScreen extends StatelessWidget {
     super.key,
     required this.settings,
     required this.onChanged,
+    required this.storageService,
   });
 
   final AppSettings settings;
   final Future<void> Function(AppSettings settings) onChanged;
+  final StorageService storageService;
 
   @override
   Widget build(BuildContext context) {
@@ -149,12 +152,20 @@ class SettingsScreen extends StatelessWidget {
                 children: [
                   _DropdownTile<StorageLocation>(
                     title: 'Location',
-                    subtitle: 'External storage is a future native route',
+                    subtitle: 'Final session destination',
                     value: settings.storageLocation,
-                    values: StorageLocation.values,
+                    values: const [
+                      StorageLocation.internal,
+                      StorageLocation.external,
+                    ],
                     labelFor: (value) => value.label,
                     onChanged: (value) =>
                         onChanged(settings.copyWith(storageLocation: value)),
+                  ),
+                  _ExternalLocationTile(
+                    settings: settings,
+                    storageService: storageService,
+                    onChanged: onChanged,
                   ),
                 ],
               ),
@@ -260,6 +271,125 @@ class _SettingsSection extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _ExternalLocationTile extends StatefulWidget {
+  const _ExternalLocationTile({
+    required this.settings,
+    required this.storageService,
+    required this.onChanged,
+  });
+
+  final AppSettings settings;
+  final StorageService storageService;
+  final Future<void> Function(AppSettings settings) onChanged;
+
+  @override
+  State<_ExternalLocationTile> createState() => _ExternalLocationTileState();
+}
+
+class _ExternalLocationTileState extends State<_ExternalLocationTile> {
+  bool? _available;
+  bool _choosing = false;
+  bool _checking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshAvailability();
+  }
+
+  Future<void> _refreshAvailability() async {
+    if (_checking) {
+      return;
+    }
+    setState(() => _checking = true);
+    final available = await widget.storageService.externalAvailable();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _available = available;
+      _checking = false;
+    });
+  }
+
+  Future<void> _chooseExternal() async {
+    if (_choosing) {
+      return;
+    }
+    setState(() => _choosing = true);
+    final selected = await widget.storageService.chooseExternal();
+    final available = await widget.storageService.externalAvailable();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _available = available;
+      _choosing = false;
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+    if (!selected) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('No external location selected.')),
+      );
+      return;
+    }
+
+    await widget.onChanged(
+      widget.settings.copyWith(storageLocation: StorageLocation.external),
+    );
+    if (!mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          available
+              ? 'External location selected.'
+              : 'External location saved, but it is not reachable now.',
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.drive_folder_upload_outlined),
+      title: const Text('Choose external location'),
+      subtitle: Text(_statusText()),
+      trailing: _choosing || _checking
+          ? const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(
+              _available == true
+                  ? Icons.check_circle_outline
+                  : Icons.error_outline,
+            ),
+      onTap: _choosing ? null : _chooseExternal,
+    );
+  }
+
+  String _statusText() {
+    if (_choosing) {
+      return 'Opening system folder picker';
+    }
+    if (_checking) {
+      return 'Checking external access';
+    }
+    if (_available == true) {
+      return 'External location granted and reachable';
+    }
+    if (widget.settings.storageLocation == StorageLocation.external) {
+      return 'External is selected, but no location is reachable';
+    }
+    return 'Grant access before recording to external storage';
   }
 }
 

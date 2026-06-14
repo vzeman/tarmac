@@ -358,6 +358,15 @@ class _SessionCard extends StatelessWidget {
                               icon: Icons.storage,
                               value: _formatBytes(session.totalBytes),
                             ),
+                            if (session.isExternal)
+                              _SessionFact(
+                                icon: session.storageAvailable
+                                    ? Icons.usb
+                                    : Icons.usb_off,
+                                value: session.storageAvailable
+                                    ? 'External'
+                                    : 'External unavailable',
+                              ),
                           ],
                         ),
                       ],
@@ -457,6 +466,19 @@ class SessionDetailScreen extends StatelessWidget {
                           label: 'Size',
                           value: _formatBytes(session.totalBytes),
                         ),
+                        _SummaryTile(
+                          icon: session.isExternal
+                              ? (session.storageAvailable
+                                    ? Icons.usb
+                                    : Icons.usb_off)
+                              : Icons.phone_iphone,
+                          label: 'Storage',
+                          value: session.isExternal
+                              ? (session.storageAvailable
+                                    ? 'External'
+                                    : 'Unavailable')
+                              : 'Internal',
+                        ),
                       ],
                     ),
                     const SizedBox(height: 16),
@@ -491,6 +513,14 @@ class SessionDetailScreen extends StatelessWidget {
                     _DetailRow(
                       label: 'IMU samples',
                       value: session.imuSampleCount.toString(),
+                    ),
+                    _DetailRow(
+                      label: 'Storage',
+                      value: session.isExternal
+                          ? (session.storageAvailable
+                                ? 'External'
+                                : 'External unavailable')
+                          : 'Internal',
                     ),
                     _DetailRow(label: 'Video', value: session.videoPath),
                     _DetailRow(label: 'Sidecar', value: session.sidecarPath),

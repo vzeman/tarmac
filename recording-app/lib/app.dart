@@ -83,7 +83,11 @@ class _RoadSurveyAppState extends State<RoadSurveyApp> {
               sessionRepository: _sessionRepository,
               onRefresh: _reloadSessions,
             ),
-            SettingsScreen(settings: _settings, onChanged: _saveSettings),
+            SettingsScreen(
+              settings: _settings,
+              onChanged: _saveSettings,
+              storageService: _sessionRepository.storageService,
+            ),
           ];
           return LayoutBuilder(
             builder: (context, constraints) {

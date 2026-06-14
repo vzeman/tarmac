@@ -12,6 +12,7 @@ import 'location_service.dart';
 import 'motion_service.dart';
 import 'session_repository.dart';
 import 'sidecar_writer.dart';
+import 'storage_service.dart';
 import 'timestamp_service.dart';
 
 class CaptureSessionController extends ChangeNotifier {
@@ -27,6 +28,7 @@ class CaptureSessionController extends ChangeNotifier {
   final MotionService motionService = MotionService();
 
   SidecarWriter? _writer;
+  StorageTarget? _storageTarget;
   RecordingClock? _clock;
   StreamSubscription<GpsSample>? _gpsSubscription;
   StreamSubscription<ImuSample>? _imuSubscription;
@@ -77,7 +79,9 @@ class CaptureSessionController extends ChangeNotifier {
     }
   }
 
-  Future<SessionSummary?> start() async {
+  Future<SessionSummary?> start({
+    StorageTargetType? storageTargetOverride,
+  }) async {
     if (isRecording || isStopping) {
       return null;
     }
@@ -96,6 +100,10 @@ class CaptureSessionController extends ChangeNotifier {
       await locationService.ensureServiceEnabled();
       await cameraService.initialize(settings);
       await cameraService.prepareRecording();
+      _storageTarget = await sessionRepository.storageService.activeTarget(
+        settings,
+        forceInternal: storageTargetOverride == StorageTargetType.internal,
+      );
       final startFix = await locationService.currentBestFix();
       final startUtc = startFix?.timestamp.toUtc() ?? DateTime.now().toUtc();
       final sessionId = sessionRepository.createSessionId(startUtc);
@@ -188,13 +196,15 @@ class CaptureSessionController extends ChangeNotifier {
         durationMs: durationMs,
         videoFile: videoFile,
       );
-      await sessionRepository.saveSummary(summary);
+      final finalizedSummary = await _finalizeStorageTarget(summary);
+      await sessionRepository.saveSummary(finalizedSummary);
       _writer = null;
+      _storageTarget = null;
       isRecording = false;
       isStopping = false;
       elapsed = Duration.zero;
       notifyListeners();
-      return summary;
+      return finalizedSummary;
     } on Exception catch (error) {
       errorMessage = error.toString();
       isStopping = false;
@@ -208,9 +218,28 @@ class CaptureSessionController extends ChangeNotifier {
     await WakelockPlus.disable();
     await writer?.discard();
     _writer = null;
+    _storageTarget = null;
     _clock = null;
     isRecording = false;
     isStopping = false;
+  }
+
+  Future<SessionSummary> _finalizeStorageTarget(SessionSummary summary) async {
+    final target =
+        _storageTarget ??
+        await sessionRepository.storageService.activeTarget(settings);
+    try {
+      return await sessionRepository.storageService.finalizeToTarget(
+        summary: summary,
+        target: target,
+      );
+    } on Exception {
+      if (!target.isExternal) {
+        rethrow;
+      }
+      warningMessage = 'External storage became unavailable; saved internally.';
+      return summary.copyWith(storageLocation: 'internal');
+    }
   }
 
   Future<void> _stopTelemetry() async {

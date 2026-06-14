@@ -11,6 +11,7 @@ import '../models/telemetry.dart';
 import '../services/capture_session_controller.dart';
 import '../services/permission_service.dart';
 import '../services/session_repository.dart';
+import '../services/storage_service.dart';
 import '../settings/app_settings.dart';
 
 const _readyColor = Color(0xFF18B85F);
@@ -47,6 +48,7 @@ class _RecordScreenState extends State<RecordScreen>
   Timer? _preflightGpsTimer;
   Timer? _stopHoldTimer;
   int? _freeBytes;
+  StorageTarget? _storageTarget;
   double? _preflightGpsAccuracyM;
   DateTime? _preflightGpsFixUtc;
   bool _checkingPreflight = false;
@@ -86,6 +88,7 @@ class _RecordScreenState extends State<RecordScreen>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.settings != widget.settings) {
       unawaited(_controller.updateSettings(widget.settings));
+      unawaited(_refreshFreeSpace());
     }
   }
 
@@ -117,10 +120,14 @@ class _RecordScreenState extends State<RecordScreen>
   }
 
   Future<void> _refreshFreeSpace() async {
-    final bytes = await widget.sessionRepository.storageService
-        .freeBytesForRecordingsRoot();
+    final target = await widget.sessionRepository.storageService.activeTarget(
+      widget.settings,
+    );
     if (mounted) {
-      setState(() => _freeBytes = bytes);
+      setState(() {
+        _storageTarget = target;
+        _freeBytes = target.freeBytes;
+      });
     }
   }
 
@@ -160,6 +167,7 @@ class _RecordScreenState extends State<RecordScreen>
     }
     if (permissions.canRecord) {
       await _controller.initializeCamera();
+      await _refreshFreeSpace();
       await _refreshPreflightGps();
     }
     if (!mounted) {
@@ -188,6 +196,44 @@ class _RecordScreenState extends State<RecordScreen>
       }
     }
 
+    StorageTargetType? storageTargetOverride;
+    if (widget.settings.storageLocation == StorageLocation.external) {
+      final available = await widget.sessionRepository.storageService
+          .externalAvailable();
+      if (!mounted) {
+        return;
+      }
+      if (!available) {
+        final continueInternal = await showDialog<bool>(
+          context: context,
+          builder: (context) {
+            return AlertDialog(
+              title: const Text("External storage isn't connected."),
+              content: const Text('Continue recording to internal storage?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Continue on Internal'),
+                ),
+              ],
+            );
+          },
+        );
+        if (continueInternal != true) {
+          return;
+        }
+        storageTargetOverride = StorageTargetType.internal;
+        await _refreshFreeSpace();
+        if (!mounted) {
+          return;
+        }
+      }
+    }
+
     final permissions = await _permissionService.requestCapturePermissions(
       context,
     );
@@ -210,7 +256,7 @@ class _RecordScreenState extends State<RecordScreen>
       );
     }
     await HapticFeedback.mediumImpact();
-    await _controller.start();
+    await _controller.start(storageTargetOverride: storageTargetOverride);
     if (_controller.isRecording) {
       await HapticFeedback.heavyImpact();
     }
@@ -309,6 +355,7 @@ class _RecordScreenState extends State<RecordScreen>
       storageReady: storageReady,
       calibrationSet: widget.settings.mountCalibrationSet,
       storageTimeLeft: storageTime,
+      storageDetail: _storageDetail(_storageTarget, storageTime),
       gpsAccuracyM: accuracy,
       gpsFixUtc: _controller.lastGpsFixUtc ?? _preflightGpsFixUtc,
     );
@@ -401,6 +448,7 @@ class _RecordScreenState extends State<RecordScreen>
               controller: _controller,
               settings: widget.settings,
               freeBytes: _freeBytes,
+              storageTarget: _storageTarget,
               stopHoldProgress: _stopHoldProgress,
               onStart: _start,
               onStopHoldStart: _beginStopHold,
@@ -517,6 +565,7 @@ class _RecordScreenState extends State<RecordScreen>
               controller: _controller,
               settings: widget.settings,
               freeBytes: _freeBytes,
+              storageTarget: _storageTarget,
               stopHoldProgress: _stopHoldProgress,
               horizontal: true,
               onStart: _start,
@@ -546,6 +595,7 @@ class _PreflightReadiness {
     required this.storageReady,
     required this.calibrationSet,
     required this.storageTimeLeft,
+    required this.storageDetail,
     required this.gpsAccuracyM,
     required this.gpsFixUtc,
   });
@@ -555,6 +605,7 @@ class _PreflightReadiness {
   final bool storageReady;
   final bool calibrationSet;
   final Duration? storageTimeLeft;
+  final String storageDetail;
   final double? gpsAccuracyM;
   final DateTime? gpsFixUtc;
 
@@ -781,6 +832,7 @@ class _ThumbRail extends StatelessWidget {
     required this.controller,
     required this.settings,
     required this.freeBytes,
+    required this.storageTarget,
     required this.stopHoldProgress,
     required this.onStart,
     required this.onStopHoldStart,
@@ -791,6 +843,7 @@ class _ThumbRail extends StatelessWidget {
   final CaptureSessionController controller;
   final AppSettings settings;
   final int? freeBytes;
+  final StorageTarget? storageTarget;
   final double stopHoldProgress;
   final VoidCallback onStart;
   final VoidCallback onStopHoldStart;
@@ -831,7 +884,7 @@ class _ThumbRail extends StatelessWidget {
       ),
       _RailMetric(
         icon: Icons.sd_storage_outlined,
-        label: 'Storage',
+        label: storageTarget?.label ?? 'Storage',
         value: _formatTimeLeft(_estimatedTimeLeft(freeBytes, settings)),
       ),
     ];
@@ -1104,7 +1157,7 @@ class _PreflightSheet extends StatelessWidget {
                 ),
                 _ReadinessItem(
                   label: 'Storage sufficient',
-                  detail: _formatTimeLeft(readiness.storageTimeLeft),
+                  detail: readiness.storageDetail,
                   state: readiness.storageReady
                       ? _ReadinessState.good
                       : _ReadinessState.bad,
@@ -1580,4 +1633,15 @@ String _formatTimeLeft(Duration? duration) {
     return '~${(duration.inMinutes / 60).toStringAsFixed(1)} h';
   }
   return '~${duration.inMinutes} min';
+}
+
+String _storageDetail(StorageTarget? target, Duration? duration) {
+  final timeLeft = _formatTimeLeft(duration);
+  if (target == null) {
+    return timeLeft;
+  }
+  if (target.externalUnavailable) {
+    return 'External missing; Internal $timeLeft';
+  }
+  return '${target.label} $timeLeft';
 }

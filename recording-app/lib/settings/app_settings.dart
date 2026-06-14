@@ -4,7 +4,7 @@ enum CaptureResolution { p720, p1080, p2160, max }
 
 enum CaptureCodec { h264, hevc }
 
-enum StorageLocation { auto, internal, external }
+enum StorageLocation { internal, external }
 
 enum UnitSystem { metric, imperial }
 
@@ -45,7 +45,7 @@ class AppSettings {
       resolution: CaptureResolution.p1080,
       codec: CaptureCodec.h264,
       maxSegmentGb: 10,
-      storageLocation: StorageLocation.auto,
+      storageLocation: StorageLocation.internal,
       keepScreenOn: true,
       units: UnitSystem.metric,
       displayTheme: DisplayTheme.sunlight,
@@ -273,8 +273,6 @@ extension CaptureCodecLabel on CaptureCodec {
 extension StorageLocationLabel on StorageLocation {
   String get label {
     switch (this) {
-      case StorageLocation.auto:
-        return 'Auto';
       case StorageLocation.internal:
         return 'Internal';
       case StorageLocation.external:

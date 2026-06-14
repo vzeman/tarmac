@@ -12,7 +12,7 @@ void main() {
     expect(settings.pauseDebounceS, 3);
     expect(settings.captureMode, CaptureMode.continuous);
     expect(settings.maxSegmentGb, 10);
-    expect(settings.storageLocation, StorageLocation.auto);
+    expect(settings.storageLocation, StorageLocation.internal);
     expect(settings.keepScreenOn, isTrue);
     expect(settings.displayTheme, DisplayTheme.sunlight);
     expect(settings.autoDimWhileRecording, isFalse);

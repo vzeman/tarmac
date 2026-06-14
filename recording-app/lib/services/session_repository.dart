@@ -28,8 +28,18 @@ class SessionRepository {
           .map(SessionSummary.fromJson)
           .where((session) => session.id.isNotEmpty)
           .toList();
-      sessions.sort((a, b) => b.startedAtUtc.compareTo(a.startedAtUtc));
-      return sessions;
+      final externalAvailable = sessions.any((session) => session.isExternal)
+          ? await storageService.externalAvailable()
+          : false;
+      final markedSessions = sessions
+          .map(
+            (session) => session.isExternal
+                ? session.copyWith(storageAvailable: externalAvailable)
+                : session.copyWith(storageAvailable: true),
+          )
+          .toList();
+      markedSessions.sort((a, b) => b.startedAtUtc.compareTo(a.startedAtUtc));
+      return markedSessions;
     } on FormatException {
       return [];
     } on TypeError {
@@ -62,11 +72,10 @@ class SessionRepository {
   }
 
   Future<List<TrackPoint>> loadTrackPoints(SessionSummary summary) async {
-    final file = File(summary.gpxPath);
-    if (!await file.exists()) {
+    final raw = await _readSessionText(summary, summary.gpxPath);
+    if (raw == null) {
       return _fallbackPoints(summary);
     }
-    final raw = await file.readAsString();
     final matches = RegExp(
       r'<trkpt lat="([^"]+)" lon="([^"]+)">.*?<time>([^<]+)</time>',
       dotAll: true,
@@ -113,6 +122,11 @@ class SessionRepository {
   }
 
   Future<void> _deleteSessionArtifacts(SessionSummary summary) async {
+    if (summary.isExternal) {
+      await _deleteExternalSessionArtifacts(summary);
+      return;
+    }
+
     final root = await storageService.recordingsRoot();
     final directory = Directory(summary.directoryPath);
     if (_isInsideRoot(root, directory) && await directory.exists()) {
@@ -130,6 +144,39 @@ class SessionRepository {
       if (_isInsideRoot(root, file) && await file.exists()) {
         await file.delete();
       }
+    }
+  }
+
+  Future<String?> _readSessionText(SessionSummary summary, String path) async {
+    if (summary.isExternal) {
+      if (!await storageService.externalAvailable()) {
+        return null;
+      }
+      return storageService.readExternalText(path);
+    }
+
+    final file = File(path);
+    try {
+      if (!await file.exists()) {
+        return null;
+      }
+      return file.readAsString();
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  Future<void> _deleteExternalSessionArtifacts(SessionSummary summary) async {
+    if (!await storageService.externalAvailable()) {
+      return;
+    }
+    final paths = <String>{
+      summary.videoPath,
+      summary.sidecarPath,
+      summary.gpxPath,
+    };
+    for (final path in paths.where((path) => path.isNotEmpty)) {
+      await storageService.deleteExternalFile(path);
     }
   }
 
