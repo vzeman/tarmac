@@ -140,6 +140,19 @@ Final MPS run, seed 42:
 - Test per-domain macro-F1: bridge `0.8975`, pavement `0.8996`, building `0.8768`, runway `0.8990`, concrete-generic `0.9986`.
 - Caveat: bridge is the only domain with all five non-crack structural labels in the current manifest; building, pavement, runway, and concrete-generic domain metrics are effectively crack-transfer checks. Corrosion is the weakest label because its visual signal overlaps staining/efflorescence and has fewer positives.
 
+### Phase 10 — Condition assessment, repair priority, and licensing labels (user-requested 2026-06-14)
+Goal: add a capstone rules/reporting layer on top of existing `tarmac analyze` outputs without retraining models or touching YOLO assets.
+
+Implemented:
+1. `tarmac assess <image|dir|video> [--mm-per-pixel X] [--out DIR]` calls the existing analyze pipeline on CPU-capable inference paths, forces crack segmentation so crack geometry is available, and writes `assessment.json` plus `assessment.parquet`.
+2. `src/tarmac/inference/assess.py` defines editable rule tables in one place:
+   - Condition grade starts from visual quality grade and is worsened by exposed rebar/corrosion on inferred bridge/building domains, wide or moderate AASHTO-inspired crack width bands, crack area percentage, cracked-tile ratio, spalling, and efflorescence.
+   - Repair priority is `urgent` for structural exposed rebar/corrosion, wide cracks, quality grade 5, or crack area at least 5%; `plan_repair` for moderate cracks, spalling, quality grade 4, material crack area, or many cracked tiles; `monitor` for minor cracks, efflorescence, or quality grade 3; `none` otherwise.
+3. The condition descriptor is explicitly a **PCI-like visual proxy** (`Good`, `Satisfactory`, `Fair`, `Poor`, `Serious`), not official ASTM D6433 PCI. Rationale strings repeat the visual-only limitation: binder content, density/air voids, and water-damage/stripping progression are not measured.
+4. `tarmac report` detects `assessment.parquet` and adds a Condition assessment section with mean proxy condition grade, repair-priority counts, per-frame badges, key defects, and rationale.
+5. `reports/DATA_LICENSES.md` labels commercial usability by capability. Surface quality and crack-specific capabilities use CC data subject to attribution/share-alike obligations. The non-crack structural defect labels (`spalling`, `efflorescence`, `exposed_rebar`, `corrosion`) are marked non-commercial/research-only because they are CODEBRIM-backed (`other-nc`). SDNET2018 remains unverified.
+6. `scripts/smoke_assess.py` builds a small mixed input set from StreetSurfaceVis plus CrackAirport, runs `tarmac assess` with `--device cpu`, generates the HTML report, and asserts the assessment fields (`overall_condition_grade`, `repair_priority`, `rationale`, `pci_proxy_descriptor`) exist.
+
 ## Management protocol
 - Each phase executed by **local codex CLI** (`codex exec`), one detailed task prompt per phase; Claude reviews diffs/outputs, runs smoke tests, iterates with codex on failures.
 - Definition of done per phase: code runs end-to-end via documented command, produces artifact (manifest/embeddings/metrics/report), reviewed by Claude.

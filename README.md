@@ -81,6 +81,17 @@ The multi-label defect head predicts `crack`, `spalling`, `efflorescence`, `expo
 
 ![Structural defect detection crack examples](reports/examples/07_structural_defects.png)
 
+### Condition assessment + repair priority
+`tarmac assess` runs the existing analyzer, then aggregates quality grade, crack geometry, and defect signals into a per-frame PCI-like visual proxy. The output is `assessment.json` plus `assessment.parquet`; the HTML report adds a **Condition assessment** section with per-frame grade, priority, and rationale.
+
+This is **not** official ASTM D6433 PCI. It does not measure binder content, density/air voids, or water-damage progression; those remain lab/instrumented/time-series targets.
+
+| Frame | Condition | Descriptor | Repair priority | Key defects |
+| ---: | ---: | --- | --- | --- |
+| 0 | 2 | Satisfactory | none | none |
+| 1 | 3 | Fair | monitor | crack |
+| 2 | 4 | Poor | plan_repair | crack, spalling |
+
 ### Cracked-section flagging & vector-space visualization
 Tile-level crack flags (left) mark which sections are cracked; `tarmac visualize` (right) projects any folder into the reference embedding space with click-to-view images.
 
@@ -119,6 +130,15 @@ uv run tarmac report runs/my-video      # -> runs/my-video/report.html
 ```
 
 Headline stats, a quality timeline, cracked-section overlays when a crack head is present, crack geometry overlays when segmentation ran, a UMAP scatter of the run inside the reference space, a GPS map (when EXIF GPS exists), and a thumbnail gallery.
+
+### Run condition assessment
+
+```bash
+UV_CACHE_DIR=.uv-cache uv run tarmac assess path/to/images --device cpu --mm-per-pixel 0.5 --out runs/my-assessment
+UV_CACHE_DIR=.uv-cache uv run tarmac report runs/my-assessment
+```
+
+The assessment layer reuses `tarmac analyze`; it does not train or duplicate model code. It writes `assessment.json`, `assessment.parquet`, and a report-ready condition summary with repair priorities `none`, `monitor`, `plan_repair`, and `urgent`.
 
 ### Crack & runway detection
 
@@ -174,6 +194,10 @@ Held-out test AP / F1: crack `0.9868 / 0.9393`, spalling `0.9660 / 0.8953`, effl
 When `models/defect_head.pt` exists, `tarmac analyze` adds per-tile `tile_defect_<label>_prob` and `tile_defect_<label>` columns to `tiles.parquet`, plus per-frame `defect_<label>_ratio`, `frame_has_defect_<label>`, `structural_defects`, and `frame_has_structural_defect` columns to `results.parquet`. The HTML report includes a **Structural defects** panel listing detected defect types per frame.
 
 The committed gallery image uses CrackAirport imagery for the crack case only. CODEBRIM bridge imagery is not committed because Zenodo record `2620293` reports license id `other-nc`; the non-crack bridge-defect results are shown in the metrics table in [`reports/RESULTS.md`](reports/RESULTS.md).
+
+### Licensing & commercial use
+
+Surface-quality and crack-specific capabilities are based on CC-licensed sources, subject to attribution/share-alike obligations. The non-crack structural defect labels are CODEBRIM-backed and marked non-commercial/research-only. See [`reports/DATA_LICENSES.md`](reports/DATA_LICENSES.md) before using the trained heads commercially.
 
 ### Mobile / real-time (YOLO)
 
@@ -250,4 +274,4 @@ PLAN.md       full architecture, decisions and phase plan
 
 ## Roadmap
 
-Built so far: data pipeline, embeddings, contrastive fine-tuning, clustering, evaluation, inference, reports, folder visualization, UI, Phase 7 crack/runway analysis, Phase 8 full-training YOLO mobile students, and Phase 9 multi-domain structural defect detection. Next (see `PLAN.md`): resolve native CoreML export, add more non-crack structural datasets, and consider defect-aware embedding fine-tuning.
+Built so far: data pipeline, embeddings, contrastive fine-tuning, clustering, evaluation, inference, reports, folder visualization, UI, Phase 7 crack/runway analysis, Phase 8 full-training YOLO mobile students, Phase 9 multi-domain structural defect detection, and Phase 10 condition assessment with licensing labels. Next (see `PLAN.md`): resolve native CoreML export, add more non-crack structural datasets, and consider defect-aware embedding fine-tuning.

@@ -745,6 +745,43 @@ def analyze(
     print_summary(summary, console)
 
 
+@app.command()
+def assess(
+    path: Path = typer.Argument(..., help="Photo, directory of photos, or video to assess."),
+    out: Path | None = typer.Option(None, "--out", "-o", help="Output assessment run directory."),
+    mm_per_pixel: float | None = typer.Option(
+        None,
+        "--mm-per-pixel",
+        help="Optional calibration for metric crack measurements and AASHTO width banding.",
+    ),
+    fps: float = typer.Option(2.0, "--fps", help="Video frame extraction rate."),
+    k: int = typer.Option(10, "--k", help="Nearest neighbors per tile."),
+    non_road_threshold: float | None = typer.Option(
+        None,
+        "--non-road-threshold",
+        help="Mean cosine threshold below which a tile is marked non-road. Default calibrates from val tiles.",
+    ),
+    batch_size: int = typer.Option(16, "--batch-size", help="Embedding batch size."),
+    device: str = typer.Option("cpu", "--device", help="Inference device. Use cpu for reproducible smoke runs."),
+    region: str = typer.Option("auto", "--region", help="Tile region: auto, lower_half, or full."),
+) -> None:
+    """Run analysis and aggregate a PCI-proxy condition/repair-priority assessment."""
+    from tarmac.inference.assess import assess_path, print_assessment_summary
+
+    payload = assess_path(
+        input_path=path,
+        out_dir=out,
+        fps=fps,
+        k=k,
+        non_road_threshold=non_road_threshold,
+        batch_size=batch_size,
+        device=device,
+        region=region,
+        mm_per_pixel=mm_per_pixel,
+    )
+    print_assessment_summary(payload, console)
+
+
 @app.command("crack-measure")
 def crack_measure(
     path: Path = typer.Argument(..., help="Image file or directory of images to measure."),

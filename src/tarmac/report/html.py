@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import html as html_lib
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,7 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     run_xy = reducer.transform(run_embeddings)
 
     timeline = quality_timeline(df)
+    condition_panel = condition_assessment_panel(run_dir)
     crack_panel = cracked_sections_panel(run_dir, df)
     structural_panel = structural_defects_panel(df)
     crack_geometry = crack_geometry_panel(run_dir, df)
@@ -73,6 +75,11 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
     .thumb img {{ width: 100%; max-height: 200px; object-fit: cover; display: block; }}
     .thumb div {{ padding: 9px; font-size: 13px; }}
     .badge {{ display: inline-block; color: #111; border-radius: 999px; padding: 2px 8px; font-weight: 700; }}
+    .priority-badge {{ display: inline-block; border-radius: 999px; padding: 3px 9px; font-weight: 700; font-size: 12px; color: #111; }}
+    .priority-none {{ background: #d7f0df; }}
+    .priority-monitor {{ background: #d9e8ff; }}
+    .priority-plan-repair {{ background: #ffe2aa; }}
+    .priority-urgent {{ background: #ffb8b8; }}
     .crack-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }}
     .crack-card {{ background: white; border: 1px solid #dde2e7; border-radius: 8px; overflow: hidden; }}
     .crack-image {{ position: relative; line-height: 0; }}
@@ -93,6 +100,7 @@ def build_html_report(run_dir: Path, output: Path | None = None) -> Path:
   </header>
   <main>
     {stats}
+    {condition_panel}
     <h2>Quality Timeline</h2>
     <div class="panel">{timeline}</div>
     {crack_panel}
@@ -132,6 +140,53 @@ def headline_stats(summary: dict[str, Any]) -> str:
       <div class="stat"><span>Mean confidence</span><b>{float(summary.get("mean_confidence", 0.0)):.3f}</b></div>
       <div class="stat"><span>Quality distribution</span><b>{dist_text}</b></div>
     </section>
+"""
+
+
+def condition_assessment_panel(run_dir: Path) -> str:
+    assessment_path = run_dir / "assessment.parquet"
+    if not assessment_path.exists():
+        return ""
+    assessment = pd.read_parquet(assessment_path)
+    if assessment.empty:
+        return ""
+    counts = assessment["repair_priority"].fillna("none").astype(str).value_counts().to_dict()
+    count_text = ", ".join(
+        f"{priority}: {int(counts.get(priority, 0))}"
+        for priority in ["none", "monitor", "plan_repair", "urgent"]
+    )
+    mean_grade = float(assessment["overall_condition_grade"].astype(float).mean())
+    rows: list[str] = []
+    for row in assessment.itertuples():
+        priority = str(getattr(row, "repair_priority", "none"))
+        priority_class = "priority-" + priority.replace("_", "-")
+        defects = str(getattr(row, "key_defects", "") or "none")
+        rationale = html_lib.escape(str(getattr(row, "rationale", "")))
+        rows.append(
+            "<tr>"
+            f"<td>{int(getattr(row, 'frame_index', 0))}</td>"
+            f"<td>{html_lib.escape(str(getattr(row, 'filename', '')))}</td>"
+            f"<td>{int(getattr(row, 'overall_condition_grade', 0))}</td>"
+            f"<td>{html_lib.escape(str(getattr(row, 'pci_proxy_descriptor', '')))}</td>"
+            f'<td><span class="priority-badge {priority_class}">{html_lib.escape(priority)}</span></td>'
+            f"<td>{html_lib.escape(defects)}</td>"
+            f"<td>{rationale}</td>"
+            "</tr>"
+        )
+    table = (
+        '<table class="measure-table"><thead><tr><th>Frame</th><th>File</th>'
+        "<th>Condition grade</th><th>Descriptor</th><th>Repair priority</th>"
+        "<th>Key defects</th><th>Rationale</th></tr></thead><tbody>"
+        + "\n".join(rows)
+        + "</tbody></table>"
+    )
+    return f"""
+    <h2 id="condition-assessment">Condition assessment</h2>
+    <div class="panel">
+      <p><b>Mean proxy condition grade:</b> {mean_grade:.2f} · <b>Repair priority counts:</b> {html_lib.escape(count_text)}</p>
+      <p>This is a PCI-like visual proxy, not an official ASTM D6433 PCI. Binder content, density/air voids, and water-damage progression are not measured.</p>
+      {table}
+    </div>
 """
 
 

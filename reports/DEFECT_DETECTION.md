@@ -1,5 +1,7 @@
 # Structural Defect Detection
 
+> Non-commercial banner: the non-crack defect labels (`spalling`, `efflorescence`, `exposed_rebar`, `corrosion`) are trained on CODEBRIM (Zenodo `2620293`, license id `other-nc`) and should be treated as research-only/non-commercial.
+
 The defect head is a multi-label classifier trained on frozen active-backbone DINOv3 embeddings. It predicts crack, spalling, efflorescence, exposed rebar, and corrosion; pure `none` examples are used only as negatives.
 
 Checkpoint: `models/defect_head.pt`
@@ -89,4 +91,3 @@ Thresholds are chosen per label by maximizing F1 on the validation split.
 | images_with_any_predicted_defect | 4727 |
 | mean_true_labels_per_image | 0.7356 |
 | mean_predicted_labels_per_image | 0.7256 |
-
