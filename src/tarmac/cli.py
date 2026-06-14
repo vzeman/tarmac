@@ -295,6 +295,13 @@ def embed(
     ),
     model_name: str = typer.Option(DINOV3_MODEL, help="Primary HF backbone model."),
     checkpoint: Path | None = typer.Option(None, help="Fine-tuned backbone checkpoint."),
+    allow_fallback: bool = typer.Option(
+        True,
+        "--allow-fallback/--no-fallback",
+        help="Allow fallback from the requested backbone to another available model.",
+    ),
+    device: str = typer.Option("auto", help="Embedding device: auto, mps, or cpu."),
+    attn_implementation: str = typer.Option("eager", help="HF attention implementation, e.g. eager or sdpa."),
     suffix: str | None = typer.Option(None, help="Artifact suffix, e.g. finetuned."),
     batch_size: int = typer.Option(16, help="Image batch size."),
 ) -> None:
@@ -311,6 +318,9 @@ def embed(
         metadata_path=metadata,
         model_name=model_name,
         checkpoint_path=checkpoint,
+        allow_fallback=allow_fallback,
+        attn_implementation=attn_implementation,
+        device_name=device,
         batch_size=batch_size,
     )
     console.print(
@@ -371,11 +381,16 @@ def train(
         Path("models/finetuned_backbone.json"), help="Training config/history JSON output."
     ),
     model_name: str = typer.Option(DINOV3_MODEL, help="Primary HF backbone model."),
+    initial_checkpoint: Path | None = typer.Option(
+        None,
+        help="Optional backbone checkpoint to load before supervised contrastive fine-tuning.",
+    ),
     epochs: int = typer.Option(10, help="Maximum fine-tuning epochs."),
     batch_size: int = typer.Option(32, help="Physical image batch size."),
     effective_batch_size: int = typer.Option(128, help="Effective batch size via accumulation."),
     backbone_lr: float = typer.Option(5e-5, help="Backbone AdamW learning rate."),
     head_lr: float = typer.Option(5e-4, help="Projection-head AdamW learning rate."),
+    unfrozen_blocks: int = typer.Option(4, help="Number of final transformer blocks to fine-tune."),
     device: str = typer.Option("auto", help="Training device: auto, mps, or cpu."),
     run_name: str = typer.Option("supcon", help="Run name for per-epoch checkpoints."),
     resume: bool = typer.Option(False, help="Resume from the latest epoch checkpoint for run-name."),
@@ -390,11 +405,13 @@ def train(
         output_checkpoint=checkpoint,
         output_metadata=metadata,
         model_name=model_name,
+        initial_checkpoint=initial_checkpoint,
         epochs=epochs,
         batch_size=batch_size,
         effective_batch_size=effective_batch_size,
         backbone_lr=backbone_lr,
         head_lr=head_lr,
+        unfrozen_blocks=unfrozen_blocks,
         device_name=device,
         run_name=run_name,
         resume=resume,
@@ -404,6 +421,51 @@ def train(
     console.print(
         f"Training complete: backbone={result['backbone']} epochs={result['epochs_trained']} "
         f"best_epoch={result['best_epoch']} best_val_quality_macro_f1={result['best_val_quality_macro_f1']:.4f}"
+    )
+
+
+@app.command("domain-adapt")
+def domain_adapt(
+    video: list[Path] | None = typer.Option(
+        None,
+        "--video",
+        help="Recorded session video to use as unlabeled domain data. Repeat for multiple videos.",
+    ),
+    fps: float = typer.Option(2.0, help="Frame extraction FPS."),
+    force_extract: bool = typer.Option(False, help="Re-extract frames and road tiles if outputs exist."),
+    ssl_epochs: int = typer.Option(3, help="SimSiam self-supervised adaptation epochs."),
+    ssl_max_tiles: int = typer.Option(6000, help="Maximum road tiles sampled for SSL adaptation."),
+    finetune_epochs: int = typer.Option(8, help="Maximum SupCon re-fine-tuning epochs."),
+    pseudo_min_mean_cosine: float = typer.Option(0.8, help="Pseudo-label mean kNN cosine threshold."),
+    pseudo_min_surface_margin: float = typer.Option(0.10, help="Pseudo-label surface top-2 margin threshold."),
+    pseudo_min_quality_margin: float = typer.Option(0.08, help="Pseudo-label quality top-2 margin threshold."),
+    pseudo_max_total: int = typer.Option(3000, help="Maximum selected pseudo-label rows."),
+    pseudo_max_per_composite: int = typer.Option(150, help="Maximum selected rows per surface+quality class."),
+    device: str = typer.Option("mps", help="Training and embedding device; MPS only."),
+) -> None:
+    """Run SSL domain adaptation, pseudo-labeling, re-fine-tuning, evaluation, and gate."""
+    from tarmac.train.domain_adapt import run_domain_adaptation_pipeline
+
+    result = run_domain_adaptation_pipeline(
+        video_paths=video,
+        fps=fps,
+        force_extract=force_extract,
+        ssl_epochs=ssl_epochs,
+        ssl_max_tiles=ssl_max_tiles,
+        finetune_epochs=finetune_epochs,
+        pseudo_min_mean_cosine=pseudo_min_mean_cosine,
+        pseudo_min_surface_margin=pseudo_min_surface_margin,
+        pseudo_min_quality_margin=pseudo_min_quality_margin,
+        pseudo_max_total=pseudo_max_total,
+        pseudo_max_per_composite=pseudo_max_per_composite,
+        device_name=device,
+    )
+    gate = result["gate"]
+    console.print(
+        f"Domain adaptation complete: frames={result['frames_extracted']} "
+        f"pseudo={result['pseudo']['selected']} "
+        f"candidate_quality_macro_f1={gate['candidate_quality_macro_f1']:.4f} "
+        f"gate={'ACCEPTED' if gate['accepted'] else 'REJECTED'}"
     )
 
 

@@ -34,6 +34,7 @@ TEMPERATURE = 0.07
 class SupConConfig:
     manifest_path: str
     model_name: str
+    initial_checkpoint: str | None
     output_checkpoint: str
     output_metadata: str
     epochs: int
@@ -110,12 +111,14 @@ def train_supcon(
     output_checkpoint: Path = Path("models/finetuned_backbone.pt"),
     output_metadata: Path = Path("models/finetuned_backbone.json"),
     model_name: str = DINOV3_MODEL,
+    initial_checkpoint: Path | None = None,
     epochs: int = 10,
     batch_size: int = 32,
     effective_batch_size: int = 128,
     backbone_lr: float = 5e-5,
     head_lr: float = 5e-4,
     weight_decay: float = 1e-4,
+    unfrozen_blocks: int = 4,
     num_workers: int = 0,
     device_name: str = "auto",
     run_name: str = "supcon",
@@ -137,6 +140,7 @@ def train_supcon(
 
     embedder = HFBackboneEmbedder(
         model_name=model_name,
+        checkpoint_path=initial_checkpoint,
         allow_fallback=False,
         attn_implementation=attn_implementation,
         move_to_device=False,
@@ -151,7 +155,7 @@ def train_supcon(
     model.to(device)
     hidden_size = int(getattr(model.config, "hidden_size", 768))
     head = ProjectionHead(hidden_size).to(device)
-    _freeze_except_last_blocks(model, last_n=4)
+    _freeze_except_last_blocks(model, last_n=unfrozen_blocks)
     model.train()
 
     transform = _train_transform(embedder.processor, embedder.input_size)
@@ -182,6 +186,7 @@ def train_supcon(
     config = SupConConfig(
         manifest_path=str(manifest_path),
         model_name=embedder.model_name,
+        initial_checkpoint=str(initial_checkpoint) if initial_checkpoint is not None else None,
         output_checkpoint=str(output_checkpoint),
         output_metadata=str(output_metadata),
         epochs=epochs,
@@ -192,7 +197,7 @@ def train_supcon(
         head_lr=head_lr,
         weight_decay=weight_decay,
         temperature=TEMPERATURE,
-        unfrozen_blocks=4,
+        unfrozen_blocks=unfrozen_blocks,
         seed=SEED,
         run_name=run_name,
         checkpoint_dir=str(checkpoint_dir),

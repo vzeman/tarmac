@@ -214,11 +214,20 @@ def embed_manifest(
     metadata_path: Path,
     model_name: str = DINOV3_MODEL,
     checkpoint_path: Path | None = None,
+    allow_fallback: bool = True,
+    attn_implementation: str | None = None,
+    device_name: str = "auto",
     batch_size: int = 16,
     num_workers: int = 4,
 ) -> BackboneInfo:
     manifest = pd.read_parquet(manifest_path)
-    embedder = HFBackboneEmbedder(model_name=model_name, checkpoint_path=checkpoint_path)
+    embedder = HFBackboneEmbedder(
+        model_name=model_name,
+        checkpoint_path=checkpoint_path,
+        allow_fallback=allow_fallback,
+        attn_implementation=attn_implementation,
+        device_name=device_name,
+    )
     info = embedder.info
     LOGGER.info("Embedding with %s on %s.", info.model_name, info.device)
 
@@ -304,6 +313,8 @@ def _processor_input_size(processor: Any) -> int:
 
 def _preferred_device(device_name: str = "auto") -> torch.device:
     if device_name != "auto":
+        if device_name == "mps" and not torch.backends.mps.is_available():
+            raise RuntimeError("MPS was requested but is not available.")
         return torch.device(device_name)
     if torch.backends.mps.is_available():
         return torch.device("mps")
