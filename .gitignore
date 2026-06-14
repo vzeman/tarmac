@@ -18,3 +18,6 @@ __pycache__/
 # Heavy interactive HTML reports (regenerable via `tarmac visualize` / `tarmac evaluate`);
 # keep the lightweight PNG versions committed for the README instead.
 reports/*.html
+
+# Recorded survey sessions copied from devices (large media)
+recordings/
