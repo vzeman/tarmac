@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 @objc class AppDelegate: FlutterAppDelegate, UIDocumentPickerDelegate {
   private let externalBookmarkKey = "roadsurvey_recorder.externalDirectoryBookmark"
   private var pendingPickerResult: FlutterResult?
+  private var activeExternalAccess: [String: ScopedAccess] = [:]
 
   override func application(
     _ application: UIApplication,
@@ -89,6 +90,25 @@ import UniformTypeIdentifiers
           } catch {
             result(false)
           }
+        case "startExternalAccess":
+          let args = call.arguments as? [String: Any]
+          guard let path = args?["path"] as? String else {
+            result(FlutterError(code: "bad_args", message: "path is required.", details: nil))
+            return
+          }
+          do {
+            result(try self.startExternalAccess(path: path))
+          } catch {
+            result(false)
+          }
+        case "stopExternalAccess":
+          let args = call.arguments as? [String: Any]
+          guard let path = args?["path"] as? String else {
+            result(FlutterError(code: "bad_args", message: "path is required.", details: nil))
+            return
+          }
+          self.stopExternalAccess(path: path)
+          result(true)
         default:
           result(FlutterMethodNotImplemented)
         }
@@ -134,7 +154,7 @@ import UniformTypeIdentifiers
 
     do {
       let bookmark = try url.bookmarkData(
-        options: .withSecurityScope,
+        options: [],
         includingResourceValuesForKeys: nil,
         relativeTo: nil
       )
@@ -157,7 +177,7 @@ import UniformTypeIdentifiers
     var isStale = false
     let url = try URL(
       resolvingBookmarkData: data,
-      options: .withSecurityScope,
+      options: [],
       relativeTo: nil,
       bookmarkDataIsStale: &isStale
     )
@@ -170,7 +190,7 @@ import UniformTypeIdentifiers
         }
       }
       let refreshed = try url.bookmarkData(
-        options: .withSecurityScope,
+        options: [],
         includingResourceValuesForKeys: nil,
         relativeTo: nil
       )
@@ -252,13 +272,54 @@ import UniformTypeIdentifiers
     }
   }
 
-  private func withSecurityScopedAccess<T>(_ url: URL, _ body: (URL) throws -> T) throws -> T {
-    let accessing = url.startAccessingSecurityScopedResource()
-    guard accessing else {
+  private func startExternalAccess(path: String) throws -> Bool {
+    guard let root = try resolveExternalDirectory() else {
       throw StorageError.externalUnavailable
     }
+    let fileURL = URL(fileURLWithPath: path)
+    guard isDescendant(fileURL, of: root) else {
+      throw StorageError.invalidPath
+    }
+    if var active = activeExternalAccess[path] {
+      active.count += 1
+      activeExternalAccess[path] = active
+      return true
+    }
+
+    let accessing = root.startAccessingSecurityScopedResource()
+    let exists = FileManager.default.fileExists(atPath: fileURL.path)
+    let reachable = (try? fileURL.checkResourceIsReachable()) ?? exists
+    guard exists || reachable else {
+      if accessing {
+        root.stopAccessingSecurityScopedResource()
+      }
+      return false
+    }
+    if accessing {
+      activeExternalAccess[path] = ScopedAccess(url: root, count: 1)
+    }
+    return true
+  }
+
+  private func stopExternalAccess(path: String) {
+    guard var active = activeExternalAccess[path] else {
+      return
+    }
+    active.count -= 1
+    if active.count <= 0 {
+      active.url.stopAccessingSecurityScopedResource()
+      activeExternalAccess.removeValue(forKey: path)
+    } else {
+      activeExternalAccess[path] = active
+    }
+  }
+
+  private func withSecurityScopedAccess<T>(_ url: URL, _ body: (URL) throws -> T) throws -> T {
+    let accessing = url.startAccessingSecurityScopedResource()
     defer {
-      url.stopAccessingSecurityScopedResource()
+      if accessing {
+        url.stopAccessingSecurityScopedResource()
+      }
     }
     return try body(url)
   }
@@ -312,6 +373,11 @@ import UniformTypeIdentifiers
       details: nil
     )
   }
+}
+
+private struct ScopedAccess {
+  let url: URL
+  var count: Int
 }
 
 private enum StorageError: LocalizedError {

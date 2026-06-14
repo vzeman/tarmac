@@ -74,6 +74,15 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(deleteExternalFile(path))
                 }
+                "startExternalAccess" -> {
+                    val path = call.argument<String>("path")
+                    if (path == null) {
+                        result.error("bad_args", "path is required.", null)
+                        return@setMethodCallHandler
+                    }
+                    result.success(canOpenExternalPath(path))
+                }
+                "stopExternalAccess" -> result.success(true)
                 else -> result.notImplemented()
             }
         }
@@ -186,6 +195,20 @@ class MainActivity : FlutterActivity() {
         return try {
             val uri = Uri.parse(path)
             DocumentFile.fromSingleUri(this, uri)?.delete() ?: false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun canOpenExternalPath(path: String): Boolean {
+        return try {
+            if (path.startsWith("content://")) {
+                contentResolver.openAssetFileDescriptor(Uri.parse(path), "r")?.use {
+                    true
+                } ?: false
+            } else {
+                File(path).exists()
+            }
         } catch (_: Exception) {
             false
         }

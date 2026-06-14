@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -44,6 +45,22 @@ class StorageTarget {
   bool get isExternal => type == StorageTargetType.external;
 
   String get label => isExternal ? 'External' : 'Internal';
+}
+
+class ExternalFileAccess {
+  ExternalFileAccess._(this._storageService, this.path);
+
+  final StorageService _storageService;
+  final String path;
+  bool _released = false;
+
+  void release() {
+    if (_released) {
+      return;
+    }
+    _released = true;
+    unawaited(_storageService.stopExternalFileAccess(path));
+  }
 }
 
 class StorageService {
@@ -217,6 +234,33 @@ class StorageService {
       return false;
     } on MissingPluginException {
       return false;
+    }
+  }
+
+  Future<ExternalFileAccess?> startExternalFileAccess(String path) async {
+    try {
+      final available =
+          await _storageChannel.invokeMethod<bool>('startExternalAccess', {
+            'path': path,
+          }) ??
+          false;
+      return available ? ExternalFileAccess._(this, path) : null;
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  Future<void> stopExternalFileAccess(String path) async {
+    try {
+      await _storageChannel.invokeMethod<bool>('stopExternalAccess', {
+        'path': path,
+      });
+    } on PlatformException {
+      return;
+    } on MissingPluginException {
+      return;
     }
   }
 

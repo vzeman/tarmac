@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import '../models/session_summary.dart';
 import '../models/telemetry.dart';
 import '../services/session_repository.dart';
+import 'session_video_player_screen.dart';
 
 class SessionsScreen extends StatefulWidget {
   const SessionsScreen({
@@ -106,6 +107,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
                     selectionMode: _selectionMode,
                     onSelectionChanged: (selected) =>
                         _setSelected(session.id, selected),
+                    onPlay: () => _openVideoPlayer(session),
                     onTap: () {
                       if (_selectionMode) {
                         _setSelected(
@@ -157,6 +159,17 @@ class _SessionsScreenState extends State<SessionsScreen> {
     return widget.sessions
         .where((session) => _selectedIds.contains(session.id))
         .toList();
+  }
+
+  void _openVideoPlayer(SessionSummary session) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SessionVideoPlayerScreen(
+          session: session,
+          sessionRepository: widget.sessionRepository,
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmAndDelete(List<SessionSummary> sessions) async {
@@ -275,6 +288,7 @@ class _SessionCard extends StatelessWidget {
     required this.selected,
     required this.selectionMode,
     required this.onSelectionChanged,
+    required this.onPlay,
     required this.onTap,
   });
 
@@ -283,6 +297,7 @@ class _SessionCard extends StatelessWidget {
   final bool selected;
   final bool selectionMode;
   final ValueChanged<bool> onSelectionChanged;
+  final VoidCallback onPlay;
   final VoidCallback onTap;
 
   @override
@@ -374,7 +389,18 @@ class _SessionCard extends StatelessWidget {
                   },
                 ),
               ),
-              const Icon(Icons.chevron_right),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!selectionMode)
+                    IconButton(
+                      tooltip: 'Play video',
+                      onPressed: onPlay,
+                      icon: const Icon(Icons.play_circle_outline),
+                    ),
+                  const Icon(Icons.chevron_right),
+                ],
+              ),
             ],
           ),
         ),
@@ -482,6 +508,12 @@ class SessionDetailScreen extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () => _openVideoPlayer(context),
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Play video'),
+                    ),
+                    const SizedBox(height: 10),
                     OutlinedButton.icon(
                       onPressed: null,
                       icon: const Icon(Icons.ios_share_outlined),
@@ -530,6 +562,17 @@ class SessionDetailScreen extends StatelessWidget {
               },
             );
           },
+        ),
+      ),
+    );
+  }
+
+  void _openVideoPlayer(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SessionVideoPlayerScreen(
+          session: session,
+          sessionRepository: sessionRepository,
         ),
       ),
     );
