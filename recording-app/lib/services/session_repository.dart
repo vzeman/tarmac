@@ -5,6 +5,53 @@ import '../models/session_summary.dart';
 import '../models/telemetry.dart';
 import 'storage_service.dart';
 
+class SessionSharePackage {
+  SessionSharePackage({
+    required this.availableFiles,
+    required this.unavailableFiles,
+    List<ExternalFileAccess> externalAccesses = const [],
+  }) : _externalAccesses = externalAccesses;
+
+  final List<SessionShareFile> availableFiles;
+  final List<UnavailableSessionShareFile> unavailableFiles;
+  final List<ExternalFileAccess> _externalAccesses;
+  bool _released = false;
+
+  void release() {
+    if (_released) {
+      return;
+    }
+    _released = true;
+    for (final access in _externalAccesses) {
+      access.release();
+    }
+  }
+}
+
+class SessionShareFile {
+  const SessionShareFile({
+    required this.path,
+    required this.displayName,
+    required this.mimeType,
+  });
+
+  final String path;
+  final String displayName;
+  final String mimeType;
+}
+
+class UnavailableSessionShareFile {
+  const UnavailableSessionShareFile({
+    required this.path,
+    required this.displayName,
+    required this.reason,
+  });
+
+  final String path;
+  final String displayName;
+  final String reason;
+}
+
 class SessionRepository {
   SessionRepository({StorageService? storageService})
     : storageService = storageService ?? StorageService();
@@ -94,6 +141,93 @@ class SessionRepository {
     return points.isEmpty ? _fallbackPoints(summary) : points;
   }
 
+  Future<SessionSharePackage> resolveShareableFiles(
+    SessionSummary summary,
+  ) async {
+    final externalAccesses = <ExternalFileAccess>[];
+    try {
+      final candidates = await _shareCandidates(summary, externalAccesses);
+      final available = <SessionShareFile>[];
+      final unavailable = <UnavailableSessionShareFile>[];
+      final seenPaths = <String>{};
+
+      for (final candidate in candidates) {
+        final path = _normalizeSharePath(candidate.path);
+        if (path == null || !seenPaths.add(path)) {
+          continue;
+        }
+        final displayName = _displayName(path, candidate.kind);
+        final mimeType = _mimeTypeForKind(candidate.kind);
+        if (_isContentUri(path)) {
+          final access = summary.isExternal
+              ? await storageService.startExternalFileAccess(path)
+              : null;
+          access?.release();
+          unavailable.add(
+            UnavailableSessionShareFile(
+              path: path,
+              displayName: displayName,
+              reason: access == null
+                  ? 'external storage unavailable'
+                  : 'external Android URI',
+            ),
+          );
+          continue;
+        }
+
+        ExternalFileAccess? fileAccess;
+        if (summary.isExternal) {
+          fileAccess = await storageService.startExternalFileAccess(path);
+          if (fileAccess == null) {
+            unavailable.add(
+              UnavailableSessionShareFile(
+                path: path,
+                displayName: displayName,
+                reason: 'external storage unavailable',
+              ),
+            );
+            continue;
+          }
+        }
+
+        final exists = await _fileExists(path);
+        if (!exists) {
+          fileAccess?.release();
+          unavailable.add(
+            UnavailableSessionShareFile(
+              path: path,
+              displayName: displayName,
+              reason: 'missing',
+            ),
+          );
+          continue;
+        }
+
+        if (fileAccess != null) {
+          externalAccesses.add(fileAccess);
+        }
+        available.add(
+          SessionShareFile(
+            path: path,
+            displayName: displayName,
+            mimeType: mimeType,
+          ),
+        );
+      }
+
+      return SessionSharePackage(
+        availableFiles: available,
+        unavailableFiles: unavailable,
+        externalAccesses: externalAccesses,
+      );
+    } on Object {
+      for (final access in externalAccesses) {
+        access.release();
+      }
+      rethrow;
+    }
+  }
+
   String createSessionId(DateTime utc) {
     final normalized = utc.toUtc();
     String two(int value) => value.toString().padLeft(2, '0');
@@ -180,6 +314,69 @@ class SessionRepository {
     }
   }
 
+  Future<List<_SessionShareCandidate>> _shareCandidates(
+    SessionSummary summary,
+    List<ExternalFileAccess> externalAccesses,
+  ) async {
+    final candidates = <_SessionShareCandidate>[
+      if (summary.videoPath.trim().isNotEmpty)
+        _SessionShareCandidate(summary.videoPath, _SessionShareKind.video),
+      if (summary.sidecarPath.trim().isNotEmpty)
+        _SessionShareCandidate(summary.sidecarPath, _SessionShareKind.sidecar),
+      if (summary.gpxPath.trim().isNotEmpty)
+        _SessionShareCandidate(summary.gpxPath, _SessionShareKind.gpx),
+    ];
+
+    final directoryPath = _normalizeSharePath(summary.directoryPath);
+    if (directoryPath == null || _isContentUri(directoryPath)) {
+      return _sortShareCandidates(candidates);
+    }
+
+    ExternalFileAccess? directoryAccess;
+    if (summary.isExternal) {
+      directoryAccess = await storageService.startExternalFileAccess(
+        directoryPath,
+      );
+      if (directoryAccess == null) {
+        return _sortShareCandidates(candidates);
+      }
+      externalAccesses.add(directoryAccess);
+    }
+
+    final directory = Directory(directoryPath);
+    if (!await _directoryExists(directory)) {
+      return _sortShareCandidates(candidates);
+    }
+
+    await for (final entity in directory.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is! File) {
+        continue;
+      }
+      final kind = _shareKindForPath(entity.path);
+      if (kind == null) {
+        continue;
+      }
+      candidates.add(_SessionShareCandidate(entity.path, kind));
+    }
+
+    return _sortShareCandidates(candidates);
+  }
+
+  List<_SessionShareCandidate> _sortShareCandidates(
+    List<_SessionShareCandidate> candidates,
+  ) {
+    return candidates.toList()..sort((a, b) {
+      final kindComparison = a.kind.index.compareTo(b.kind.index);
+      if (kindComparison != 0) {
+        return kindComparison;
+      }
+      return _filenameFromPath(a.path).compareTo(_filenameFromPath(b.path));
+    });
+  }
+
   bool _isInsideRoot(Directory root, FileSystemEntity entity) {
     final rootPath = '${root.absolute.path}${Platform.pathSeparator}';
     final path = entity.absolute.path;
@@ -195,5 +392,95 @@ class SessionRepository {
       points.add(TrackPoint(lat: summary.endLat!, lon: summary.endLon!));
     }
     return points;
+  }
+}
+
+enum _SessionShareKind { video, sidecar, gpx }
+
+class _SessionShareCandidate {
+  const _SessionShareCandidate(this.path, this.kind);
+
+  final String path;
+  final _SessionShareKind kind;
+}
+
+_SessionShareKind? _shareKindForPath(String path) {
+  final name = _filenameFromPath(path).toLowerCase();
+  if (name.endsWith('.mp4')) {
+    return _SessionShareKind.video;
+  }
+  if (name.endsWith('.track.json')) {
+    return _SessionShareKind.sidecar;
+  }
+  if (name.endsWith('.gpx')) {
+    return _SessionShareKind.gpx;
+  }
+  return null;
+}
+
+String _mimeTypeForKind(_SessionShareKind kind) {
+  return switch (kind) {
+    _SessionShareKind.video => 'video/mp4',
+    _SessionShareKind.sidecar => 'application/json',
+    _SessionShareKind.gpx => 'application/gpx+xml',
+  };
+}
+
+String _displayName(String path, _SessionShareKind kind) {
+  final name = _filenameFromPath(path);
+  if (name.isNotEmpty && name.contains('.')) {
+    return name;
+  }
+  return switch (kind) {
+    _SessionShareKind.video => 'video.mp4',
+    _SessionShareKind.sidecar => 'track.json',
+    _SessionShareKind.gpx => 'track.gpx',
+  };
+}
+
+String _filenameFromPath(String path) {
+  final uri = Uri.tryParse(path);
+  if (uri != null && uri.hasScheme && uri.scheme != 'file') {
+    final segment = uri.pathSegments.isEmpty ? path : uri.pathSegments.last;
+    return _basename(Uri.decodeComponent(segment).split(':').last);
+  }
+  return _basename(path);
+}
+
+String _basename(String path) {
+  final normalized = path.replaceAll('\\', '/');
+  final slash = normalized.lastIndexOf('/');
+  return slash >= 0 ? normalized.substring(slash + 1) : normalized;
+}
+
+String? _normalizeSharePath(String rawPath) {
+  final trimmed = rawPath.trim();
+  if (trimmed.isEmpty) {
+    return null;
+  }
+  final uri = Uri.tryParse(trimmed);
+  if (uri != null && uri.scheme == 'file') {
+    return uri.toFilePath();
+  }
+  return trimmed;
+}
+
+bool _isContentUri(String path) {
+  return Uri.tryParse(path)?.scheme == 'content';
+}
+
+Future<bool> _fileExists(String path) async {
+  try {
+    return await File(path).exists();
+  } on FileSystemException {
+    return false;
+  }
+}
+
+Future<bool> _directoryExists(Directory directory) async {
+  try {
+    return await directory.exists();
+  } on FileSystemException {
+    return false;
   }
 }

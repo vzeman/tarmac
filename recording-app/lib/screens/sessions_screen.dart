@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/session_summary.dart';
 import '../models/telemetry.dart';
@@ -26,6 +27,7 @@ class SessionsScreen extends StatefulWidget {
 
 class _SessionsScreenState extends State<SessionsScreen> {
   final Set<String> _selectedIds = {};
+  final Set<String> _sharingIds = {};
   bool _selectionMode = false;
   bool _deleting = false;
 
@@ -108,6 +110,8 @@ class _SessionsScreenState extends State<SessionsScreen> {
                     onSelectionChanged: (selected) =>
                         _setSelected(session.id, selected),
                     onPlay: () => _openVideoPlayer(session),
+                    onShare: () => _shareSession(session),
+                    sharing: _sharingIds.contains(session.id),
                     onTap: () {
                       if (_selectionMode) {
                         _setSelected(
@@ -170,6 +174,28 @@ class _SessionsScreenState extends State<SessionsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _shareSession(SessionSummary session) async {
+    if (_sharingIds.contains(session.id)) {
+      return;
+    }
+    setState(() {
+      _sharingIds.add(session.id);
+    });
+    try {
+      await _shareSessionFiles(
+        context: context,
+        session: session,
+        sessionRepository: widget.sessionRepository,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sharingIds.remove(session.id);
+        });
+      }
+    }
   }
 
   Future<void> _confirmAndDelete(List<SessionSummary> sessions) async {
@@ -289,6 +315,8 @@ class _SessionCard extends StatelessWidget {
     required this.selectionMode,
     required this.onSelectionChanged,
     required this.onPlay,
+    required this.onShare,
+    required this.sharing,
     required this.onTap,
   });
 
@@ -298,6 +326,8 @@ class _SessionCard extends StatelessWidget {
   final bool selectionMode;
   final ValueChanged<bool> onSelectionChanged;
   final VoidCallback onPlay;
+  final VoidCallback onShare;
+  final bool sharing;
   final VoidCallback onTap;
 
   @override
@@ -392,12 +422,24 @@ class _SessionCard extends StatelessWidget {
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (!selectionMode)
+                  if (!selectionMode) ...[
+                    IconButton(
+                      tooltip: 'Share session files',
+                      onPressed: sharing ? null : onShare,
+                      icon: sharing
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.ios_share_outlined),
+                    ),
                     IconButton(
                       tooltip: 'Play video',
                       onPressed: onPlay,
                       icon: const Icon(Icons.play_circle_outline),
                     ),
+                  ],
                   const Icon(Icons.chevron_right),
                 ],
               ),
@@ -515,9 +557,14 @@ class SessionDetailScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     OutlinedButton.icon(
-                      onPressed: null,
+                      onPressed: () => _shareSessionFiles(
+                        context: context,
+                        session: session,
+                        sessionRepository: sessionRepository,
+                        points: points,
+                      ),
                       icon: const Icon(Icons.ios_share_outlined),
-                      label: const Text('Export to Tarmac'),
+                      label: const Text('Share'),
                     ),
                     const SizedBox(height: 10),
                     FilledButton.icon(
@@ -800,6 +847,130 @@ class _DetailRow extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<void> _shareSessionFiles({
+  required BuildContext context,
+  required SessionSummary session,
+  required SessionRepository sessionRepository,
+  List<TrackPoint>? points,
+}) async {
+  SessionSharePackage? sharePackage;
+  try {
+    final trackPoints =
+        points ?? await sessionRepository.loadTrackPoints(session);
+    if (!context.mounted) {
+      return;
+    }
+
+    sharePackage = await sessionRepository.resolveShareableFiles(session);
+    if (!context.mounted) {
+      return;
+    }
+
+    final availableFiles = sharePackage.availableFiles;
+    if (availableFiles.isEmpty) {
+      _showShareSnackBar(
+        context,
+        _noFilesAvailableText(sharePackage.unavailableFiles),
+      );
+      return;
+    }
+
+    final xFiles = [
+      for (final file in availableFiles)
+        XFile(file.path, mimeType: file.mimeType, name: file.displayName),
+    ];
+    final fileNames = [for (final file in availableFiles) file.displayName];
+
+    // ignore: deprecated_member_use
+    await Share.shareXFiles(
+      xFiles,
+      subject: _shareSubject(session, trackPoints),
+      text: _shareText(session, trackPoints, availableFiles),
+      sharePositionOrigin: _sharePositionOrigin(context),
+      fileNameOverrides: fileNames,
+    );
+
+    if (!context.mounted) {
+      return;
+    }
+    if (sharePackage.unavailableFiles.isNotEmpty) {
+      _showShareSnackBar(
+        context,
+        _unavailableFilesText(sharePackage.unavailableFiles),
+      );
+    }
+  } on Object {
+    if (context.mounted) {
+      _showShareSnackBar(
+        context,
+        'Could not open the share sheet for this session.',
+      );
+    }
+  } finally {
+    sharePackage?.release();
+  }
+}
+
+String _shareSubject(SessionSummary session, List<TrackPoint> points) {
+  final date = DateFormat.yMMMd().add_Hm().format(
+    session.startedAtUtc.toLocal(),
+  );
+  final distance = points.length > 1
+      ? ' - ${_formatDistance(_trackDistance(points))}'
+      : '';
+  return 'RoadSurvey session $date$distance';
+}
+
+String _shareText(
+  SessionSummary session,
+  List<TrackPoint> points,
+  List<SessionShareFile> files,
+) {
+  final lines = <String>[
+    'RoadSurvey Recorder session',
+    DateFormat.yMMMd().add_Hm().format(session.startedAtUtc.toLocal()),
+  ];
+  if (points.length > 1) {
+    lines.add('Distance: ${_formatDistance(_trackDistance(points))}');
+  }
+  lines.add(
+    'Duration: ${_formatDuration(Duration(milliseconds: session.durationMs))}',
+  );
+  lines.add('Files: ${files.map((file) => file.displayName).join(', ')}');
+  return lines.join('\n');
+}
+
+Rect? _sharePositionOrigin(BuildContext context) {
+  final renderObject = context.findRenderObject();
+  if (renderObject is! RenderBox || !renderObject.hasSize) {
+    return null;
+  }
+  return renderObject.localToGlobal(Offset.zero) & renderObject.size;
+}
+
+void _showShareSnackBar(BuildContext context, String message) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(message)));
+}
+
+String _noFilesAvailableText(List<UnavailableSessionShareFile> unavailable) {
+  if (unavailable.isEmpty) {
+    return 'No session files are available to share.';
+  }
+  return 'No shareable files are available. ${_unavailableFilesText(unavailable)}';
+}
+
+String _unavailableFilesText(List<UnavailableSessionShareFile> unavailable) {
+  final labels = unavailable
+      .map((file) => '${file.displayName} (${file.reason})')
+      .toList();
+  if (labels.length <= 3) {
+    return 'Unavailable: ${labels.join(', ')}.';
+  }
+  return 'Unavailable: ${labels.take(3).join(', ')} and ${labels.length - 3} more.';
 }
 
 class _DeleteBackground extends StatelessWidget {
