@@ -2,6 +2,10 @@
 
 This catalog separates verified research claims from repo-derived integration notes. Rows marked `candidate` are supported by the verified research findings where available. Rows marked `integrated` are already represented in `src/tarmac/datasets/`; their integration details come from the repo code and are labeled as such where not covered by the verified claims.
 
+## CrackNet Note
+
+**CrackNet is a model, not a dataset.** The name refers to the CNN architecture proposed in Zhang et al. (2017), *Computer-Aided Civil and Infrastructure Engineering*, for pixel-level pavement crack detection on 3D asphalt surfaces. The training data used in that paper was collected using a proprietary road profiler system (the Stinger machine) and is not publicly available. There is no separately published "CrackNet dataset." The datasets used to evaluate CrackNet-era models (CRACK500, CFD/CrackForest, DeepCrack) are integrated or downloadable via this project.
+
 ## Verified Source Base
 
 - SDNET2018: https://ieee-dataport.org/documents/sdnet2018-concrete-crack-image-dataset-machine-learning-applications
@@ -9,6 +13,11 @@ This catalog separates verified research claims from repo-derived integration no
 - CrackForest/CFD: https://github.com/cuilimeng/CrackForest-dataset
 - RDD2022: https://github.com/sekilab/RoadDamageDetector
 - Mendeley 5y9wdsg2zt source appearance: https://data.mendeley.com/datasets/5y9wdsg2zt/2
+- DeepCrack (Liu et al., Neurocomputing 2019): https://github.com/yhlleo/DeepCrack
+- CRACK500 (Yang et al., ICIP 2016): https://github.com/fyangneil/pavement-crack-detection
+- CrackTree260/CRKWH100 (Zou et al., T-IP 2018): https://github.com/qinnzou/DeepCrack
+- Khanh11k merged dataset: https://github.com/khanhha/crack_segmentation
+- CSSC database (Yang et al., IROS 2017): https://www.researchgate.net/publication/319333841
 
 ## Dataset Catalog
 
@@ -25,6 +34,12 @@ This catalog separates verified research claims from repo-derived integration no
 | CrackForest / CFD | pavement | On disk: 118 normalized image/mask pairs under `data/raw/crackforest/{images,masks}`; used with CrackAirport for the DINOv3 dense crack-segmentation head | segmentation mask / pixel-level ground truth; upstream MATLAB `groundTruth.Segmentation` converted to binary PNG masks | No verified severity labels | Upstream README: non-commercial research purposes only | https://github.com/cuilimeng/CrackForest-dataset | integrated |
 | RDD2022 | pavement | On disk: Czech subset only, 2,829 annotated train images/XMLs under `data/raw/rdd2022/Czech` | bbox, Pascal VOC annotations; class object counts D00=988, D10=399, D20=161, D40=197 | No verified severity labels; four classes are D00 longitudinal crack, D10 transverse crack, D20 alligator crack, D40 pothole | CC BY-SA 4.0 | https://github.com/sekilab/RoadDamageDetector | integrated |
 | Mendeley 5y9wdsg2zt | concrete-generic | Not verified in confirmed claims | Not verified in confirmed claims | Not verified in confirmed claims | Not verified in confirmed claims | https://data.mendeley.com/datasets/5y9wdsg2zt/2 | candidate |
+| DeepCrack (Liu et al., yhlleo) | concrete structures (multi-scene) | 537 images with binary masks; train_img/train_lab + test_img/test_lab | pixel-level segmentation (binary PNG masks) | No severity labels | RESTRICTED: non-commercial research and educational use only | https://github.com/yhlleo/DeepCrack | integrated |
+| CRACK500 segmentation (Yang et al.) | pavement (Temple University campus) | 500+ images at 3264×2448 with pixel masks; train/val/test splits | pixel-level segmentation masks | No severity labels | Not verified in research file | https://ieeexplore.ieee.org/document/7533052 / https://github.com/fyangneil/pavement-crack-detection | integrated (manual download; OneDrive bundle) |
+| CrackTree260 (Zou et al.) | road pavement | 260 images (expansion of CrackTree200) | pixel-level segmentation (binary PNG GT masks) | No severity labels | Not verified in research file | https://ieeexplore.ieee.org/document/8517148 / https://github.com/qinnzou/DeepCrack | integrated (manual download; OneDrive) |
+| CRKWH100 (Zou et al.) | road pavement (white highway markings) | 100 images | pixel-level segmentation (binary PNG GT masks) | No severity labels | Not verified in research file | https://ieeexplore.ieee.org/document/8517148 / https://github.com/qinnzou/DeepCrack | integrated (manual download; OneDrive) |
+| Khanh11k | mixed (pavement + concrete, 12 source datasets merged) | ~11,200 images all 448×448 | pixel-level segmentation masks (binary) | No severity labels | Composite — cite original per-source papers | https://github.com/khanhha/crack_segmentation | integrated (manual download; Google Drive) |
+| CSSC (Yang et al., IROS 2017) | concrete structures (UAV-captured) | Not publicly available (author contact required) | classification / crack + spalling detection | Spalling vs crack distinction | Not verified in research file | https://www.researchgate.net/publication/319333841 | integrated (manual contact required) |
 
 ## Verified Candidate Notes
 

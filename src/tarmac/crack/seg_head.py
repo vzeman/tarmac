@@ -18,8 +18,13 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset
 from tqdm.auto import tqdm
 
+from tarmac.datasets.crack500_seg import find_crack500_seg_pairs
 from tarmac.datasets.crackairport import find_crackairport_pairs
 from tarmac.datasets.crackforest import find_crackforest_pairs
+from tarmac.datasets.cracktree260 import find_cracktree260_pairs, find_crkwh100_pairs
+from tarmac.datasets.cssc import find_cssc_pairs
+from tarmac.datasets.deepcrack_liu import find_deepcrack_liu_pairs
+from tarmac.datasets.khanh11k import find_khanh11k_pairs
 from tarmac.embedding.embedder import DINOV3_MODEL, HFBackboneEmbedder
 from tarmac.inference.analyze import load_active_artifacts
 
@@ -851,6 +856,12 @@ def _fallback_records(seed: int = SEED) -> list[SegRecord]:
     records: list[tuple[str, Path, Path]] = []
     records.extend(("crackairport", image, mask) for image, mask in _crackairport_pairs(Path("data/raw/crackairport")))
     records.extend(("crackforest", image, mask) for image, mask in find_crackforest_pairs(Path("data/raw/crackforest")))
+    records.extend(("deepcrack_liu", image, mask) for image, mask in find_deepcrack_liu_pairs(Path("data/raw/deepcrack_liu")))
+    records.extend(("crack500", image, mask) for image, mask in find_crack500_seg_pairs(Path("data/raw/crack500_seg")))
+    records.extend(("cracktree260", image, mask) for image, mask in find_cracktree260_pairs(Path("data/raw/cracktree260")))
+    records.extend(("crkwh100", image, mask) for image, mask in find_crkwh100_pairs(Path("data/raw/cracktree260")))
+    records.extend(("khanh11k", image, mask) for image, mask in find_khanh11k_pairs(Path("data/raw/khanh11k")))
+    records.extend(("cssc", image, mask) for image, mask in find_cssc_pairs(Path("data/raw/cssc")))
     by_source: dict[str, list[tuple[str, Path, Path]]] = {}
     for source, image, mask in records:
         by_source.setdefault(source, []).append((source, image, mask))

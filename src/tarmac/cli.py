@@ -195,6 +195,112 @@ def download_sdnet2018_cmd(
         console.print(f"SDNET2018 skipped: {result.message}")
 
 
+@download_app.command("deepcrack-liu")
+def download_deepcrack_liu_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/deepcrack_liu"),
+        "--output-dir",
+        "-o",
+        help="Directory for DeepCrack (Liu 2019) files.",
+    ),
+) -> None:
+    """Download DeepCrack (Liu et al., Neurocomputing 2019) segmentation dataset."""
+    from tarmac.datasets.deepcrack_liu import download_deepcrack_liu
+
+    result = download_deepcrack_liu(output_dir)
+    if result.downloaded:
+        console.print(
+            f"DeepCrack (Liu) ready: pairs={result.pair_count}, images={result.image_count}, "
+            f"masks={result.mask_count}, pairs_index={result.pairs_path}"
+        )
+    else:
+        console.print(f"DeepCrack (Liu) skipped: see {result.layout_path.parent / 'MANUAL_DOWNLOAD.md'}")
+
+
+@download_app.command("crack500-seg")
+def download_crack500_seg_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/crack500_seg"),
+        "--output-dir",
+        "-o",
+        help="Directory for CRACK500 segmentation files.",
+    ),
+) -> None:
+    """Download CRACK500 pixel-level segmentation pairs (Yang et al., ICIP 2016)."""
+    from tarmac.datasets.crack500_seg import download_crack500_seg
+
+    result = download_crack500_seg(output_dir)
+    if result.downloaded:
+        console.print(
+            f"CRACK500 seg ready: pairs={result.pair_count}, images={result.image_count}, "
+            f"masks={result.mask_count}, pairs_index={result.pairs_path}"
+        )
+    else:
+        console.print(f"CRACK500 seg skipped: see {result.layout_path.parent / 'MANUAL_DOWNLOAD.md'}")
+
+
+@download_app.command("cracktree260")
+def download_cracktree260_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/cracktree260"),
+        "--output-dir",
+        "-o",
+        help="Directory for CrackTree260 and CRKWH100 files.",
+    ),
+) -> None:
+    """Load CrackTree260 and CRKWH100 segmentation datasets (Zou et al., T-IP 2018)."""
+    from tarmac.datasets.cracktree260 import download_cracktree260
+
+    result = download_cracktree260(output_dir)
+    if result.downloaded:
+        console.print(
+            f"CrackTree260/CRKWH100 ready: cracktree260={result.cracktree260_pairs}, "
+            f"crkwh100={result.crkwh100_pairs}, pairs_index={result.pairs_path}"
+        )
+    else:
+        console.print(f"CrackTree260/CRKWH100 skipped: see {result.output_dir / 'MANUAL_DOWNLOAD.md'}")
+
+
+@download_app.command("khanh11k")
+def download_khanh11k_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/khanh11k"),
+        "--output-dir",
+        "-o",
+        help="Directory for Khanh11k merged crack segmentation dataset.",
+    ),
+) -> None:
+    """Load Khanh11k (~11,200 images merged from 12 crack datasets)."""
+    from tarmac.datasets.khanh11k import download_khanh11k
+
+    result = download_khanh11k(output_dir)
+    if result.downloaded:
+        console.print(
+            f"Khanh11k ready: pairs={result.pair_count}, pairs_index={result.pairs_path}"
+        )
+    else:
+        console.print(f"Khanh11k skipped: see {result.output_dir / 'MANUAL_DOWNLOAD.md'}")
+
+
+@download_app.command("cssc")
+def download_cssc_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/cssc"),
+        "--output-dir",
+        "-o",
+        help="Directory for CSSC database files.",
+    ),
+) -> None:
+    """Load CSSC concrete spalling and crack database (Yang et al., IROS 2017)."""
+    from tarmac.datasets.cssc import download_cssc
+
+    result = download_cssc(output_dir)
+    if result.downloaded:
+        console.print(f"CSSC ready: pairs={result.pair_count}, pairs_index={result.pairs_path}")
+    else:
+        console.print(f"CSSC skipped: see {result.output_dir / 'MANUAL_DOWNLOAD.md'}")
+
+
 @app.command()
 def prepare(
     raw_dir: Path = typer.Option(Path("data/raw"), help="Raw dataset root."),

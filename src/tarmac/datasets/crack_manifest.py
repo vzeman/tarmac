@@ -27,6 +27,8 @@ def build_crack_manifest(
     rows.extend(_folder_binary_rows(raw_dir / "crack500", "crack500"))
     rows.extend(_folder_binary_rows(raw_dir / "deepcrack", "deepcrack"))
     rows.extend(_runway_rows(raw_dir / "runway_roboflow"))
+    rows.extend(_khanh11k_rows(raw_dir / "khanh11k"))
+    rows.extend(_crack500_seg_rows(raw_dir / "crack500_seg"))
     if not rows:
         raise RuntimeError(
             f"No crack datasets found under {raw_dir}. Run `uv run tarmac download cracks-concrete-pavement` first."
@@ -108,6 +110,48 @@ def _runway_rows(dataset_dir: Path) -> list[dict[str, object]]:
                 "source_dataset": "runway_roboflow",
                 "tile": str(row.get("tile", "full")),
                 "has_crack": int(row["has_crack"]),
+            }
+        )
+    return rows
+
+
+def _khanh11k_rows(dataset_dir: Path) -> list[dict[str, object]]:
+    """Binary rows from Khanh11k: all images with a paired mask are positive."""
+    pairs_path = dataset_dir / "pairs.jsonl"
+    if not pairs_path.exists() or pairs_path.stat().st_size <= 10:
+        return []
+    rows: list[dict[str, object]] = []
+    for line in pairs_path.read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        rows.append(
+            {
+                "image_path": row["image_path"],
+                "source_dataset": "khanh11k",
+                "tile": "full",
+                "has_crack": 1,
+            }
+        )
+    return rows
+
+
+def _crack500_seg_rows(dataset_dir: Path) -> list[dict[str, object]]:
+    """Binary rows from CRACK500 segmentation: all paired images are positive (crack present)."""
+    pairs_path = dataset_dir / "pairs.jsonl"
+    if not pairs_path.exists() or pairs_path.stat().st_size <= 10:
+        return []
+    rows: list[dict[str, object]] = []
+    for line in pairs_path.read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        rows.append(
+            {
+                "image_path": row["image_path"],
+                "source_dataset": "crack500_seg",
+                "tile": "full",
+                "has_crack": 1,
             }
         )
     return rows
