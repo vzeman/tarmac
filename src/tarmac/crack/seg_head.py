@@ -25,7 +25,11 @@ from tarmac.datasets.cracktree260 import find_cracktree260_pairs, find_crkwh100_
 from tarmac.datasets.cssc import find_cssc_pairs
 from tarmac.datasets.deepcrack_liu import find_deepcrack_liu_pairs
 from tarmac.datasets.khanh11k import find_khanh11k_pairs
+from tarmac.datasets.find_crack import find_find_crack_pairs
+from tarmac.datasets.hf_crack import find_hf_crack_pairs
+from tarmac.datasets.masonry_crack import find_masonry_crack_pairs
 from tarmac.datasets.metu_crack_seg import find_metu_crack_seg_pairs
+from tarmac.datasets.paggnet_crack import find_paggnet_crack_pairs
 from tarmac.embedding.embedder import DINOV3_MODEL, HFBackboneEmbedder
 from tarmac.inference.analyze import load_active_artifacts
 
@@ -864,6 +868,10 @@ def _fallback_records(seed: int = SEED) -> list[SegRecord]:
     records.extend(("khanh11k", image, mask) for image, mask in find_khanh11k_pairs(Path("data/raw/khanh11k")))
     records.extend(("cssc", image, mask) for image, mask in find_cssc_pairs(Path("data/raw/cssc")))
     records.extend(("metu_crack_seg", image, mask) for image, mask in find_metu_crack_seg_pairs(Path("data/raw/metu_crack_seg")))
+    records.extend(("find_crack", image, mask) for image, mask in find_find_crack_pairs(Path("data/raw/find_crack")))
+    records.extend(("masonry_crack", image, mask) for image, mask in find_masonry_crack_pairs(Path("data/raw/masonry_crack")))
+    records.extend(("hf_crack", image, mask) for image, mask in find_hf_crack_pairs(Path("data/raw/hf_crack")))
+    records.extend(("paggnet_crack", image, mask) for image, mask in find_paggnet_crack_pairs(Path("data/raw/paggnet_crack")))
     by_source: dict[str, list[tuple[str, Path, Path]]] = {}
     for source, image, mask in records:
         by_source.setdefault(source, []).append((source, image, mask))

@@ -32,6 +32,10 @@ def build_crack_manifest(
     rows.extend(_mendeley5y9_rows(raw_dir / "mendeley5y9"))
     rows.extend(_rdd2022_rows(raw_dir / "rdd2022"))
     rows.extend(_seg_pairs_binary_rows(raw_dir / "metu_crack_seg", "metu_crack_seg"))
+    rows.extend(_seg_pairs_binary_rows(raw_dir / "find_crack", "find_crack"))
+    rows.extend(_seg_pairs_binary_rows(raw_dir / "masonry_crack", "masonry_crack"))
+    rows.extend(_seg_pairs_binary_rows(raw_dir / "hf_crack", "hf_crack"))
+    rows.extend(_seg_pairs_binary_rows(raw_dir / "paggnet_crack", "paggnet_crack"))
     if not rows:
         raise RuntimeError(
             f"No crack datasets found under {raw_dir}. Run `uv run tarmac download cracks-concrete-pavement` first."

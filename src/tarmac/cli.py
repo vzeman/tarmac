@@ -362,6 +362,97 @@ def download_cssc_cmd(
         console.print(f"CSSC skipped: see {result.output_dir / 'MANUAL_DOWNLOAD.md'}")
 
 
+@download_app.command("find-crack")
+def download_find_crack_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/find_crack"),
+        "--output-dir",
+        "-o",
+        help="Directory for FIND crack dataset files.",
+    ),
+    max_download_mb: float = typer.Option(
+        2048.0,
+        "--max-download-mb",
+        help="Download size guard in MB (default 2048).",
+    ),
+) -> None:
+    """Download the FIND multi-modal crack segmentation dataset (Zenodo 6383044, ~1.15 GB, CC BY 4.0)."""
+    from tarmac.datasets.find_crack import download_find_crack
+
+    result = download_find_crack(output_dir, max_download_mb=max_download_mb)
+    if result.downloaded:
+        console.print(f"FIND ready: pairs={result.pair_count}, pairs_index={result.pairs_path}")
+    else:
+        console.print(f"FIND skipped: see {result.output_dir / 'MANUAL_DOWNLOAD.md'}")
+
+
+@download_app.command("masonry-crack")
+def download_masonry_crack_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/masonry_crack"),
+        "--output-dir",
+        "-o",
+        help="Directory for UK masonry crack dataset files.",
+    ),
+    max_download_mb: float = typer.Option(
+        1024.0,
+        "--max-download-mb",
+        help="Download size guard in MB (default 1024).",
+    ),
+) -> None:
+    """Download the UK masonry crack segmentation dataset (Zenodo 18458458, ~263 MB, CC BY 4.0)."""
+    from tarmac.datasets.masonry_crack import download_masonry_crack
+
+    result = download_masonry_crack(output_dir, max_download_mb=max_download_mb)
+    if result.downloaded:
+        console.print(f"Masonry crack ready: pairs={result.pair_count}, pairs_index={result.pairs_path}")
+    else:
+        console.print(f"Masonry crack skipped: see {result.output_dir / 'MANUAL_DOWNLOAD.md'}")
+
+
+@download_app.command("hf-crack")
+def download_hf_crack_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/hf_crack"),
+        "--output-dir",
+        "-o",
+        help="Directory for HuggingFace crack dataset files.",
+    ),
+) -> None:
+    """Download the Mr-Perfectuz/crack dataset from HuggingFace (~3,378 images, MIT license)."""
+    from tarmac.datasets.hf_crack import download_hf_crack
+
+    result = download_hf_crack(output_dir)
+    if result.downloaded:
+        console.print(f"HF crack ready: pairs={result.pair_count}, pairs_index={result.pairs_path}")
+    else:
+        console.print(f"HF crack skipped: see {result.output_dir / 'MANUAL_DOWNLOAD.md'}")
+
+
+@download_app.command("paggnet-crack")
+def download_paggnet_crack_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/paggnet_crack"),
+        "--output-dir",
+        "-o",
+        help="Directory for PAGG-Net crack dataset files.",
+    ),
+    max_download_mb: float = typer.Option(
+        2048.0,
+        "--max-download-mb",
+        help="Download size guard in MB. Dataset is ~30 GB — set to 35000 to auto-download.",
+    ),
+) -> None:
+    """Download the PAGG-Net crack segmentation dataset (Zenodo 18010179, ~30 GB, CC BY 4.0)."""
+    from tarmac.datasets.paggnet_crack import download_paggnet_crack
+
+    result = download_paggnet_crack(output_dir, max_download_mb=max_download_mb)
+    if result.downloaded:
+        console.print(f"PAGG-Net ready: pairs={result.pair_count}, pairs_index={result.pairs_path}")
+    else:
+        console.print(f"PAGG-Net skipped: see {result.output_dir / 'MANUAL_DOWNLOAD.md'}")
+
+
 @app.command()
 def prepare(
     raw_dir: Path = typer.Option(Path("data/raw"), help="Raw dataset root."),
