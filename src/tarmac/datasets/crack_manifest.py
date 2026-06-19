@@ -31,6 +31,7 @@ def build_crack_manifest(
     rows.extend(_crack500_seg_rows(raw_dir / "crack500_seg"))
     rows.extend(_mendeley5y9_rows(raw_dir / "mendeley5y9"))
     rows.extend(_rdd2022_rows(raw_dir / "rdd2022"))
+    rows.extend(_seg_pairs_binary_rows(raw_dir / "metu_crack_seg", "metu_crack_seg"))
     if not rows:
         raise RuntimeError(
             f"No crack datasets found under {raw_dir}. Run `uv run tarmac download cracks-concrete-pavement` first."
@@ -135,28 +136,15 @@ def _mendeley5y9_rows(dataset_dir: Path) -> list[dict[str, object]]:
 
 
 def _khanh11k_rows(dataset_dir: Path) -> list[dict[str, object]]:
-    """Binary rows from Khanh11k: all images with a paired mask are positive."""
-    pairs_path = dataset_dir / "pairs.jsonl"
-    if not pairs_path.exists() or pairs_path.stat().st_size <= 10:
-        return []
-    rows: list[dict[str, object]] = []
-    for line in pairs_path.read_text().splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
-        rows.append(
-            {
-                "image_path": row["image_path"],
-                "source_dataset": "khanh11k",
-                "tile": "full",
-                "has_crack": 1,
-            }
-        )
-    return rows
+    return _seg_pairs_binary_rows(dataset_dir, "khanh11k")
 
 
 def _crack500_seg_rows(dataset_dir: Path) -> list[dict[str, object]]:
-    """Binary rows from CRACK500 segmentation: all paired images are positive (crack present)."""
+    return _seg_pairs_binary_rows(dataset_dir, "crack500_seg")
+
+
+def _seg_pairs_binary_rows(dataset_dir: Path, source_dataset: str) -> list[dict[str, object]]:
+    """Binary has_crack=1 rows from any dataset that writes a pairs.jsonl index."""
     pairs_path = dataset_dir / "pairs.jsonl"
     if not pairs_path.exists() or pairs_path.stat().st_size <= 10:
         return []
@@ -168,7 +156,7 @@ def _crack500_seg_rows(dataset_dir: Path) -> list[dict[str, object]]:
         rows.append(
             {
                 "image_path": row["image_path"],
-                "source_dataset": "crack500_seg",
+                "source_dataset": source_dataset,
                 "tile": "full",
                 "has_crack": 1,
             }

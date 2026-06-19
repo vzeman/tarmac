@@ -172,6 +172,32 @@ def download_rdd2022_cmd(
             console.print(f"RDD2022 skipped: country={result.country}; instructions={result.output_dir / 'MANUAL_DOWNLOAD.md'}")
 
 
+@download_app.command("metu-crack-seg")
+def download_metu_crack_seg_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/metu_crack_seg"),
+        "--output-dir",
+        "-o",
+        help="Directory for the METU concrete crack segmentation dataset.",
+    ),
+) -> None:
+    """Download METU concrete crack segmentation dataset from Mendeley (CC BY 4.0).
+
+    458 high-resolution images with binary pixel-level masks.
+    Requires bsdtar, unrar, or 7z for RAR extraction.
+    """
+    from tarmac.datasets.metu_crack_seg import download_metu_crack_seg
+
+    result = download_metu_crack_seg(output_dir)
+    if result.downloaded:
+        console.print(
+            f"METU crack seg ready: pairs={result.pair_count}, images={result.image_count}, "
+            f"masks={result.mask_count}, index={result.pairs_path}"
+        )
+    else:
+        console.print(f"METU crack seg skipped: see {result.output_dir / 'MANUAL_DOWNLOAD.md'}")
+
+
 @download_app.command("codebrim")
 def download_codebrim_cmd(
     output_dir: Path = typer.Option(
