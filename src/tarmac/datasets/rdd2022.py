@@ -37,6 +37,7 @@ COUNTRY_ARCHIVES = {
 }
 CLASSES = ("D00", "D10", "D20", "D40")
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+ALL_COUNTRIES = list(COUNTRY_ARCHIVES.keys())
 
 
 @dataclass(frozen=True)
@@ -284,6 +285,45 @@ def _image_from_xml(xml_path: Path, image_index: dict[str, Path]) -> Path | None
         if stem in image_index:
             return image_index[stem]
     return None
+
+
+def download_rdd2022_all(
+    output_dir: Path = Path("data/raw/rdd2022"),
+    max_download_mb: float = 1024.0,
+) -> list[Rdd2022Result]:
+    """Download all RDD2022 country subsets sequentially."""
+    return [
+        download_rdd2022(output_dir=output_dir, country=key, max_download_mb=max_download_mb)
+        for key in ALL_COUNTRIES
+    ]
+
+
+def find_rdd2022_country_dirs(raw_dir: Path = Path("data/raw/rdd2022")) -> list[Path]:
+    """Return all country subdirectories that have a normalized images/ folder."""
+    return sorted(
+        path
+        for path in raw_dir.iterdir()
+        if path.is_dir() and (path / "images").exists() and not path.name.startswith(("_", "archives"))
+    )
+
+
+def rdd2022_image_labels(annotations_dir: Path) -> dict[str, list[str]]:
+    """Return {image_stem: [labels]} for all annotated images in a country dir."""
+    crack_classes = {"D00", "D10", "D20"}
+    result: dict[str, list[str]] = {}
+    if not annotations_dir.exists():
+        return result
+    for xml_path in sorted(annotations_dir.glob("*.xml")):
+        classes_in_image = {name for name, _bbox in voc_objects(xml_path)}
+        labels: list[str] = []
+        if classes_in_image & crack_classes:
+            labels.append("crack")
+        if "D40" in classes_in_image:
+            labels.append("pothole")
+        if not labels:
+            labels = ["none"]
+        result[xml_path.stem] = labels
+    return result
 
 
 def _manual_instructions(

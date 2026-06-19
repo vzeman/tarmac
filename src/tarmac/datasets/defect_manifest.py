@@ -33,6 +33,7 @@ def build_defect_manifest(
     rows.extend(_sdnet2018_rows(raw_dir / "sdnet2018"))
     rows.extend(_concrete_pavement_rows(raw_dir / "cracks_concrete_pavement"))
     rows.extend(_crackairport_rows(raw_dir / "crackairport"))
+    rows.extend(_rdd2022_defect_rows(raw_dir / "rdd2022"))
     if not rows:
         raise RuntimeError(
             f"No supported defect datasets found under {raw_dir}. Run CODEBRIM, SDNET2018, "
@@ -171,6 +172,34 @@ def _crackairport_rows(dataset_dir: Path) -> list[dict[str, object]]:
                 "labels": labels,
             }
         )
+    return rows
+
+
+def _rdd2022_defect_rows(rdd2022_dir: Path) -> list[dict[str, object]]:
+    """Multi-label rows from all downloaded RDD2022 country subdirectories.
+
+    D00/D10/D20 (longitudinal/transverse/alligator crack) → 'crack'.
+    D40 (pothole) → 'crack' (pavement surface failure, closest vocab match).
+    """
+    from tarmac.datasets.rdd2022 import find_rdd2022_country_dirs, rdd2022_image_labels
+    rows: list[dict[str, object]] = []
+    if not rdd2022_dir.exists():
+        return rows
+    for country_dir in find_rdd2022_country_dirs(rdd2022_dir):
+        images_dir = country_dir / "images"
+        labels_by_stem = rdd2022_image_labels(country_dir / "annotations")
+        for image_path in sorted(p for p in images_dir.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS):
+            raw_labels = labels_by_stem.get(image_path.stem, ["crack"])
+            unified = ["crack"] if any(label in ("crack", "pothole") for label in raw_labels) else ["none"]
+            rows.append(
+                {
+                    "image_path": str(image_path.resolve()),
+                    "source_dataset": f"rdd2022_{country_dir.name.lower()}",
+                    "domain": "pavement",
+                    "structure_material": "asphalt",
+                    "labels": unified,
+                }
+            )
     return rows
 
 

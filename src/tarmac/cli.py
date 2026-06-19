@@ -136,24 +136,40 @@ def download_rdd2022_cmd(
         "-o",
         help="Directory for normalized RDD2022 files.",
     ),
-    country: str = typer.Option("Czech", "--country", help="Country subset to download."),
+    country: str = typer.Option("Czech", "--country", help="Country subset (ignored when --all-countries is set)."),
+    all_countries: bool = typer.Option(False, "--all-countries", help="Download all 7 country subsets sequentially."),
     max_download_mb: float = typer.Option(
         1024.0,
         "--max-download-mb",
         help="Skip automatic download above this upstream archive size.",
     ),
 ) -> None:
-    """Download one RDD2022 country subset and normalize annotated train data."""
-    from tarmac.datasets.rdd2022 import download_rdd2022
+    """Download RDD2022 country subset(s) and normalize annotated train data.
 
-    result = download_rdd2022(output_dir=output_dir, country=country, max_download_mb=max_download_mb)
-    if result.downloaded:
-        console.print(
-            f"RDD2022 ready: country={result.country}, images={result.image_count}, "
-            f"annotations={result.annotation_count}, classes={result.class_counts}"
-        )
+    Countries: japan, india, czech, norway, united_states, china_motorbike, china_drone.
+    Use --all-countries to download all seven at once.
+    """
+    from tarmac.datasets.rdd2022 import ALL_COUNTRIES, download_rdd2022, download_rdd2022_all
+
+    if all_countries:
+        console.print(f"Downloading all {len(ALL_COUNTRIES)} RDD2022 country subsets…")
+        results = download_rdd2022_all(output_dir=output_dir, max_download_mb=max_download_mb)
+        for result in results:
+            if result.downloaded:
+                console.print(
+                    f"  {result.country}: images={result.image_count}, annotations={result.annotation_count}"
+                )
+            else:
+                console.print(f"  {result.country}: skipped (see {result.output_dir / 'MANUAL_DOWNLOAD.md'})")
     else:
-        console.print(f"RDD2022 skipped: country={result.country}; instructions={result.output_dir / 'MANUAL_DOWNLOAD.md'}")
+        result = download_rdd2022(output_dir=output_dir, country=country, max_download_mb=max_download_mb)
+        if result.downloaded:
+            console.print(
+                f"RDD2022 ready: country={result.country}, images={result.image_count}, "
+                f"annotations={result.annotation_count}, classes={result.class_counts}"
+            )
+        else:
+            console.print(f"RDD2022 skipped: country={result.country}; instructions={result.output_dir / 'MANUAL_DOWNLOAD.md'}")
 
 
 @download_app.command("codebrim")

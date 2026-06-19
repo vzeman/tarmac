@@ -30,6 +30,7 @@ def build_crack_manifest(
     rows.extend(_khanh11k_rows(raw_dir / "khanh11k"))
     rows.extend(_crack500_seg_rows(raw_dir / "crack500_seg"))
     rows.extend(_mendeley5y9_rows(raw_dir / "mendeley5y9"))
+    rows.extend(_rdd2022_rows(raw_dir / "rdd2022"))
     if not rows:
         raise RuntimeError(
             f"No crack datasets found under {raw_dir}. Run `uv run tarmac download cracks-concrete-pavement` first."
@@ -172,6 +173,26 @@ def _crack500_seg_rows(dataset_dir: Path) -> list[dict[str, object]]:
                 "has_crack": 1,
             }
         )
+    return rows
+
+
+def _rdd2022_rows(rdd2022_dir: Path) -> list[dict[str, object]]:
+    """Binary rows from all downloaded RDD2022 country subdirectories (all annotated = has_crack=1)."""
+    from tarmac.datasets.rdd2022 import find_rdd2022_country_dirs
+    rows: list[dict[str, object]] = []
+    if not rdd2022_dir.exists():
+        return rows
+    for country_dir in find_rdd2022_country_dirs(rdd2022_dir):
+        images_dir = country_dir / "images"
+        for image_path in sorted(p for p in images_dir.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS):
+            rows.append(
+                {
+                    "image_path": str(image_path.resolve()),
+                    "source_dataset": f"rdd2022_{country_dir.name.lower()}",
+                    "tile": "full",
+                    "has_crack": 1,
+                }
+            )
     return rows
 
 
