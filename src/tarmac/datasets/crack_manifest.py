@@ -29,6 +29,7 @@ def build_crack_manifest(
     rows.extend(_runway_rows(raw_dir / "runway_roboflow"))
     rows.extend(_khanh11k_rows(raw_dir / "khanh11k"))
     rows.extend(_crack500_seg_rows(raw_dir / "crack500_seg"))
+    rows.extend(_mendeley5y9_rows(raw_dir / "mendeley5y9"))
     if not rows:
         raise RuntimeError(
             f"No crack datasets found under {raw_dir}. Run `uv run tarmac download cracks-concrete-pavement` first."
@@ -112,6 +113,23 @@ def _runway_rows(dataset_dir: Path) -> list[dict[str, object]]:
                 "has_crack": int(row["has_crack"]),
             }
         )
+    return rows
+
+
+def _mendeley5y9_rows(dataset_dir: Path) -> list[dict[str, object]]:
+    from tarmac.datasets.mendeley5y9 import find_mendeley5y9_images
+    images_by_label = find_mendeley5y9_images(dataset_dir)
+    rows: list[dict[str, object]] = []
+    for label_name, label_value in (("positive", 1), ("negative", 0)):
+        for image_path in images_by_label.get(label_name, []):
+            rows.append(
+                {
+                    "image_path": str(image_path.resolve()),
+                    "source_dataset": "mendeley5y9",
+                    "tile": "full",
+                    "has_crack": label_value,
+                }
+            )
     return rows
 
 

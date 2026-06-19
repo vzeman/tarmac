@@ -195,6 +195,25 @@ def download_sdnet2018_cmd(
         console.print(f"SDNET2018 skipped: {result.message}")
 
 
+@download_app.command("mendeley5y9")
+def download_mendeley5y9_cmd(
+    output_dir: Path = typer.Option(
+        Path("data/raw/mendeley5y9"),
+        "--output-dir",
+        "-o",
+        help="Directory for Mendeley 5y9wdsg2zt dataset.",
+    ),
+) -> None:
+    """Download Mendeley 5y9wdsg2zt — 40k binary crack/no-crack images (METU, CC BY 4.0)."""
+    from tarmac.datasets.mendeley5y9 import download_mendeley5y9
+
+    result = download_mendeley5y9(output_dir)
+    console.print(
+        f"Mendeley 5y9wdsg2zt ready: positive={result.positive_count}, "
+        f"negative={result.negative_count}, dir={result.output_dir}"
+    )
+
+
 @download_app.command("deepcrack-liu")
 def download_deepcrack_liu_cmd(
     output_dir: Path = typer.Option(

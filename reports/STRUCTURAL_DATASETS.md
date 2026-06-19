@@ -33,13 +33,28 @@ This catalog separates verified research claims from repo-derived integration no
 | CODEBRIM | bridge / concrete-generic | Not verified in research file | multi-label / multi-target multi-class concrete defect classification | Defect labels yes; severity labels not verified | Not verified in research file | https://zenodo.org/records/2620293 | candidate |
 | CrackForest / CFD | pavement | On disk: 118 normalized image/mask pairs under `data/raw/crackforest/{images,masks}`; used with CrackAirport for the DINOv3 dense crack-segmentation head | segmentation mask / pixel-level ground truth; upstream MATLAB `groundTruth.Segmentation` converted to binary PNG masks | No verified severity labels | Upstream README: non-commercial research purposes only | https://github.com/cuilimeng/CrackForest-dataset | integrated |
 | RDD2022 | pavement | On disk: Czech subset only, 2,829 annotated train images/XMLs under `data/raw/rdd2022/Czech` | bbox, Pascal VOC annotations; class object counts D00=988, D10=399, D20=161, D40=197 | No verified severity labels; four classes are D00 longitudinal crack, D10 transverse crack, D20 alligator crack, D40 pothole | CC BY-SA 4.0 | https://github.com/sekilab/RoadDamageDetector | integrated |
-| Mendeley 5y9wdsg2zt | concrete-generic | Not verified in confirmed claims | Not verified in confirmed claims | Not verified in confirmed claims | Not verified in confirmed claims | https://data.mendeley.com/datasets/5y9wdsg2zt/2 | candidate |
+| Mendeley 5y9wdsg2zt | concrete-generic (METU) | ~40,000 images at 227×227 pixels; Positive/ and Negative/ folders | binary classification (crack / no-crack); no segmentation masks | No severity labels | CC BY 4.0 | https://data.mendeley.com/datasets/5y9wdsg2zt/2 | integrated |
 | DeepCrack (Liu et al., yhlleo) | concrete structures (multi-scene) | 537 images with binary masks; train_img/train_lab + test_img/test_lab | pixel-level segmentation (binary PNG masks) | No severity labels | RESTRICTED: non-commercial research and educational use only | https://github.com/yhlleo/DeepCrack | integrated |
 | CRACK500 segmentation (Yang et al.) | pavement (Temple University campus) | 500+ images at 3264×2448 with pixel masks; train/val/test splits | pixel-level segmentation masks | No severity labels | Not verified in research file | https://ieeexplore.ieee.org/document/7533052 / https://github.com/fyangneil/pavement-crack-detection | integrated (manual download; OneDrive bundle) |
 | CrackTree260 (Zou et al.) | road pavement | 260 images (expansion of CrackTree200) | pixel-level segmentation (binary PNG GT masks) | No severity labels | Not verified in research file | https://ieeexplore.ieee.org/document/8517148 / https://github.com/qinnzou/DeepCrack | integrated (manual download; OneDrive) |
 | CRKWH100 (Zou et al.) | road pavement (white highway markings) | 100 images | pixel-level segmentation (binary PNG GT masks) | No severity labels | Not verified in research file | https://ieeexplore.ieee.org/document/8517148 / https://github.com/qinnzou/DeepCrack | integrated (manual download; OneDrive) |
 | Khanh11k | mixed (pavement + concrete, 12 source datasets merged) | ~11,200 images all 448×448 | pixel-level segmentation masks (binary) | No severity labels | Composite — cite original per-source papers | https://github.com/khanhha/crack_segmentation | integrated (manual download; Google Drive) |
 | CSSC (Yang et al., IROS 2017) | concrete structures (UAV-captured) | Not publicly available (author contact required) | classification / crack + spalling detection | Spalling vs crack distinction | Not verified in research file | https://www.researchgate.net/publication/319333841 | integrated (manual contact required) |
+
+## RDD2022 Country Subsets
+
+The RDD2022 downloader (`src/tarmac/datasets/rdd2022.py`) supports all six official country archives via the `--country` flag. Only the Czech subset is downloaded by default. All subsets use CC BY-SA 4.0.
+
+| country | approx images | command |
+|---|---:|---|
+| Czech | ~2,829 annotated train | `uv run tarmac download rdd2022 --country Czech` (default) |
+| Japan | ~12,000 annotated train | `uv run tarmac download rdd2022 --country Japan` |
+| India | ~7,700 annotated train | `uv run tarmac download rdd2022 --country India` |
+| Norway | ~2,000 annotated train | `uv run tarmac download rdd2022 --country Norway` |
+| United_States | ~3,100 annotated train | `uv run tarmac download rdd2022 --country United_States` |
+| China | ~2,900 annotated train | `uv run tarmac download rdd2022 --country China` |
+
+All subsets share the same Pascal VOC bbox annotation format with classes D00 (longitudinal crack), D10 (transverse crack), D20 (alligator crack), D40 (pothole). Use `--max-download-mb` to skip archives above a size threshold.
 
 ## Verified Candidate Notes
 
