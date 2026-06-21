@@ -579,7 +579,25 @@ def load_learned_segmenter(
     image_size = int(state.get("image_size", metadata.get("image_size", DEFAULT_IMAGE_SIZE)))
     patch_size = int(state.get("patch_size", DEFAULT_PATCH_SIZE))
     patch_grid = int(state.get("patch_grid", image_size // patch_size))
-    embedder = _load_active_backbone(image_size=image_size, device=device.type, require_accelerator=False)
+
+    # Always load the exact backbone that was used during training, not the
+    # current "active" model.  Using a different backbone produces garbage features.
+    stored_backbone = state.get("backbone_checkpoint", "")
+    stored_model_name = state.get("model_name") or DINOV3_MODEL
+    backbone_ckpt = Path(stored_backbone) if stored_backbone else None
+    if backbone_ckpt is not None and not backbone_ckpt.exists():
+        backbone_ckpt = None  # missing — fall back to pretrained weights for the stored model name
+    embedder = HFBackboneEmbedder(
+        model_name=stored_model_name,
+        checkpoint_path=backbone_ckpt,
+        allow_fallback=True,
+        attn_implementation="eager",
+        device_name=device.type,
+    )
+    _set_processor_image_size(embedder.processor, image_size)
+    embedder.model.eval()
+    for parameter in embedder.model.parameters():
+        parameter.requires_grad_(False)
     head = DenseCrackSegHead(
         input_dim=int(state.get("input_dim", getattr(embedder.model.config, "hidden_size", 768))),
         hidden_dim=int(state.get("hidden_dim", 256)),

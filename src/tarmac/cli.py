@@ -727,6 +727,67 @@ def domain_adapt(
     )
 
 
+@app.command("train-crack-backbone")
+def train_crack_backbone_cmd(
+    manifest: Path = typer.Option(
+        Path("data/processed/crack_manifest.parquet"), help="Input crack manifest parquet."
+    ),
+    checkpoint: Path = typer.Option(
+        Path("models/crack_finetuned_backbone.pt"), help="Best backbone checkpoint output."
+    ),
+    metadata: Path = typer.Option(
+        Path("models/crack_finetuned_backbone.json"), help="Training metadata JSON output."
+    ),
+    model_name: str = typer.Option(DINOV3_MODEL, help="HF backbone model identifier."),
+    initial_checkpoint: Path | None = typer.Option(
+        None, help="Optional starting backbone checkpoint (e.g. existing finetuned_backbone.pt)."
+    ),
+    epochs: int = typer.Option(10, help="Maximum fine-tuning epochs."),
+    batch_size: int = typer.Option(32, help="Physical batch size per step."),
+    effective_batch_size: int = typer.Option(128, help="Effective batch size via gradient accumulation."),
+    backbone_lr: float = typer.Option(5e-5, help="Backbone AdamW learning rate."),
+    head_lr: float = typer.Option(5e-4, help="Projection-head AdamW learning rate."),
+    unfrozen_blocks: int = typer.Option(4, help="Number of final ViT blocks to unfreeze."),
+    run_name: str = typer.Option("crack_supcon", help="Run name for per-epoch checkpoints."),
+    resume: bool = typer.Option(False, help="Resume from the latest epoch checkpoint."),
+    patience: int = typer.Option(3, help="Early-stopping patience in epochs."),
+    max_train_rows: int = typer.Option(
+        0, help="Cap training rows per class (0 = use all). Useful for fast iteration."
+    ),
+    attn_implementation: str = typer.Option("eager", help="HF attention implementation."),
+) -> None:
+    """Fine-tune the last N DINOv3 ViT blocks on binary crack/no-crack labels (SupCon loss).
+
+    Reads crack_manifest.parquet (built by prepare-cracks). Uses a balanced sampler
+    to equalise crack/no-crack within each batch. Validates with kNN binary crack F1.
+    After this completes, pass --backbone-checkpoint to train-crack to re-train the head.
+    """
+    from tarmac.train.crack_supcon import train_crack_supcon
+
+    result = train_crack_supcon(
+        manifest_path=manifest,
+        output_checkpoint=checkpoint,
+        output_metadata=metadata,
+        model_name=model_name,
+        initial_checkpoint=initial_checkpoint,
+        epochs=epochs,
+        batch_size=batch_size,
+        effective_batch_size=effective_batch_size,
+        backbone_lr=backbone_lr,
+        head_lr=head_lr,
+        unfrozen_blocks=unfrozen_blocks,
+        run_name=run_name,
+        resume=resume,
+        patience=patience,
+        max_train_rows=max_train_rows,
+        attn_implementation=attn_implementation,
+    )
+    console.print(
+        f"Crack backbone fine-tuning complete: best_epoch={result['best_epoch']} "
+        f"best_val_crack_f1={result['best_val_crack_f1']:.4f}; checkpoint={result['checkpoint']}"
+    )
+
+
 @app.command("train-crack")
 def train_crack(
     manifest: Path = typer.Option(
@@ -946,6 +1007,213 @@ def train_seg_head_cmd(
         f"Seg head trained: best_epoch={result['best_epoch']} "
         f"best_val_dice={result['best_val_dice']:.4f}; checkpoint={result['checkpoint']}"
     )
+
+
+@app.command("export-crack-annotations")
+def export_crack_annotations_cmd(
+    output: Path = typer.Option(
+        Path("data/processed/user_annotation_manifest.jsonl"),
+        help="Output JSONL manifest of user-drawn crack masks.",
+    ),
+) -> None:
+    """Export user-drawn crack annotations as a JSONL manifest for seg-head training.
+
+    Each entry has image_path, mask_path, source_dataset='user_annotation', split='train'.
+    Use with retrain-crack-seg or pass --manifest to train-seg-head.
+    """
+    from tarmac.crack.annotations import export_seg_manifest, annotation_stats
+
+    stats = annotation_stats()
+    count = export_seg_manifest(output)
+    console.print(f"Exported {count} annotations → {output}")
+    console.print(f"Stats: {stats}")
+
+
+@app.command("retrain-crack-seg")
+def retrain_crack_seg_cmd(
+    annotations_only: bool = typer.Option(
+        False,
+        "--annotations-only",
+        help="Train only on user annotations (no base dataset).",
+    ),
+    epochs: int = typer.Option(30, help="Training epochs."),
+    lr: float = typer.Option(1e-4, help="Learning rate."),
+    patience: int = typer.Option(8, help="Early-stopping patience."),
+    batch_size: int = typer.Option(4, help="Batch size."),
+    checkpoint: Path = typer.Option(Path("models/crack_seg_head.pt"), help="Output checkpoint path."),
+    device: str = typer.Option("mps", help="Training device."),
+) -> None:
+    """Retrain the crack segmentation head incorporating user-drawn annotations.
+
+    By default combines the base dataset manifest with user annotations.
+    Each user annotation contributes a binary mask (RGBA PNG, white = crack).
+    Run this after drawing crack masks in the labeling UI.
+    """
+    from tarmac.crack.annotations import export_seg_manifest
+    from tarmac.crack.seg_head import train_seg_head, DEFAULT_MANIFEST
+
+    ann_manifest = Path("data/processed/user_annotation_manifest.jsonl")
+    ann_count = export_seg_manifest(ann_manifest)
+    if ann_count == 0:
+        console.print("[red]No user annotations found.[/red] Draw crack masks in the labeling UI first.")
+        raise typer.Exit(1)
+    console.print(f"User annotations: {ann_count}")
+
+    if annotations_only or not DEFAULT_MANIFEST.exists():
+        manifest_to_use = ann_manifest
+        console.print("Training on user annotations only.")
+    else:
+        combined = Path("data/processed/combined_seg_manifest.jsonl")
+        base_lines = DEFAULT_MANIFEST.read_text().rstrip("\n")
+        ann_lines = ann_manifest.read_text().rstrip("\n")
+        combined.write_text(base_lines + "\n" + ann_lines + "\n")
+        manifest_to_use = combined
+        base_count = len([l for l in base_lines.splitlines() if l.strip()])
+        console.print(f"Combined manifest: {base_count} base + {ann_count} user = {base_count+ann_count} total")
+
+    result = train_seg_head(
+        manifest_path=manifest_to_use,
+        output_checkpoint=checkpoint,
+        epochs=epochs,
+        lr=lr,
+        patience=patience,
+        batch_size=batch_size,
+        device=device,
+    )
+    console.print(
+        f"Retrain done: best_epoch={result['best_epoch']} "
+        f"best_val_dice={result['best_val_dice']:.4f}; checkpoint={result['checkpoint']}"
+    )
+
+
+@app.command("import-frames")
+def import_frames_cmd(
+    run_dir: Path = typer.Argument(
+        ...,
+        help="Survey run directory (e.g. runs/my_video). Must contain a frames/ subdirectory.",
+    ),
+    output: Path = typer.Option(
+        Path("data/processed/survey_frames_manifest.parquet"),
+        "--output",
+        "-o",
+        help="Output manifest parquet path.",
+    ),
+    split: str = typer.Option("train", "--split", help="Dataset split to assign: train, val, or test."),
+    no_append: bool = typer.Option(
+        False,
+        "--no-append",
+        help="Overwrite instead of appending to the existing manifest.",
+    ),
+) -> None:
+    """Import frames from a survey run directory into the labeling UI manifest.
+
+    After importing, open label-ui and click the Survey tab to browse and label the frames.
+    Re-run with additional run directories to accumulate more frames (they are appended).
+
+    Example:
+        uv run tarmac survey my_road.mp4
+        uv run tarmac import-frames runs/my_road
+        uv run tarmac label-ui
+    """
+    from tarmac.datasets.survey_frames import import_survey_frames
+
+    result = import_survey_frames(run_dir, output_path=output, split=split, append=not no_append)
+    console.print(
+        f"Imported {result['added']} frames from '{result['source']}' → {result['output']} "
+        f"(total: {result['total']})"
+    )
+
+
+@app.command("export-labeled-frames")
+def export_labeled_frames_cmd(
+    corrections: Path = typer.Option(
+        Path("data/processed/corrections.parquet"),
+        "--corrections",
+        help="Corrections parquet saved by label-ui.",
+    ),
+    survey_manifest: Path = typer.Option(
+        Path("data/processed/survey_frames_manifest.parquet"),
+        "--survey-manifest",
+        help="Survey frames manifest built by import-frames.",
+    ),
+    output: Path = typer.Option(
+        Path("data/processed/survey_labeled_manifest.parquet"),
+        "--output",
+        "-o",
+        help="Output SupCon-compatible parquet manifest.",
+    ),
+) -> None:
+    """Export survey frames that have been labeled in the UI as a SupCon training manifest.
+
+    Only exports frames present in both the survey manifest and the corrections file.
+    Output columns: image_path, split, surface_type, quality, source_dataset, composite_label.
+
+    Use the output with:
+        uv run tarmac train --manifest data/processed/survey_labeled_manifest.parquet
+    """
+    from tarmac.datasets.survey_frames import export_labeled_frames
+
+    result = export_labeled_frames(
+        corrections_path=corrections,
+        survey_manifest_path=survey_manifest,
+        output_path=output,
+    )
+    console.print(f"Exported {result['exported']} labeled frames → {result['output']}")
+
+
+@app.command("export-bbox-annotations")
+def export_bbox_annotations_cmd(
+    format: str = typer.Option(
+        "coco",
+        "--format",
+        "-f",
+        help="Export format: coco (COCO JSON) or yolo (YOLO TXT per image).",
+    ),
+    output: Path = typer.Option(
+        Path("data/processed/bbox_annotations_coco.json"),
+        "--output",
+        "-o",
+        help="Output path. For YOLO format, treat this as the output directory.",
+    ),
+) -> None:
+    """Export bounding-box annotations drawn in the labeling UI.
+
+    coco  — single COCO-format JSON (works with MMDetection, Detectron2, etc.)
+    yolo  — one .txt per image in YOLO format (works with Ultralytics YOLO)
+
+    Example:
+        uv run tarmac export-bbox-annotations --format coco
+        uv run tarmac export-bbox-annotations --format yolo --output data/processed/bbox_yolo/
+    """
+    from tarmac.labeling.bbox_annotations import export_coco_json, export_yolo_txt, bbox_stats
+
+    stats = bbox_stats()
+    if stats["images"] == 0:
+        console.print(
+            "[yellow]No bbox annotations found.[/yellow] "
+            "Open label-ui, select an image, click Edit Annotation → Bounding Boxes tab, draw rectangles, and save."
+        )
+        raise typer.Exit(1)
+
+    if format == "coco":
+        result = export_coco_json(output)
+        console.print(
+            f"COCO JSON exported → {output}  "
+            f"(images={result['images']}, annotations={result['annotations']}, "
+            f"categories={result['categories']})"
+        )
+    elif format == "yolo":
+        result = export_yolo_txt(output)
+        console.print(
+            f"YOLO TXT exported → {output}/  "
+            f"(images={result['images']}, annotations={result['annotations']}, "
+            f"classes={result['classes']})"
+        )
+        console.print(f"Class list: {output / 'classes.txt'}")
+    else:
+        console.print(f"[red]Unknown format '{format}'. Use 'coco' or 'yolo'.[/red]")
+        raise typer.Exit(1)
+    console.print(f"Stats: {stats}")
 
 
 @app.command("evaluate-seg-head")
@@ -1380,6 +1648,200 @@ def report(
 
     report_path = build_html_report(run_dir=run_dir, output=output)
     console.print(f"Report written to {report_path}")
+
+
+@app.command("build-label-scatter")
+def build_label_scatter_cmd(
+    output: Path = typer.Option(
+        Path("data/processed/label_scatter_2d.parquet"), help="Output parquet path."
+    ),
+    backbone: Path = typer.Option(
+        Path("models/crack_finetuned_backbone.pt"), help="Backbone checkpoint."
+    ),
+    embeddings_file: Path = typer.Option(
+        Path("data/processed/embeddings_dinov3_finetuned.parquet"),
+        help="Pre-computed road embeddings (768D).",
+    ),
+    batch_size: int = typer.Option(64, help="Inference batch size."),
+    umap_sample: int = typer.Option(
+        0, help="Max points fed to UMAP (0 = all). Reduces memory/time for very large sets."
+    ),
+) -> None:
+    """Build 2D UMAP scatter for the labeling UI — embeds all crack + defect + road images."""
+    import hashlib
+
+    import numpy as np
+    import pandas as pd
+    import torch
+    from PIL import Image
+    from transformers import AutoImageProcessor, AutoModel
+    from umap import UMAP
+
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+
+    def _embed_df(df: "pd.DataFrame", label_col: str | None, default_label: int, desc: str) -> tuple:
+        """Batch-embed a manifest dataframe; returns (vecs, ids, sources, paths, labels)."""
+        vecs, ids, sources, paths, labels_out = [], [], [], [], []
+        rows = list(df.itertuples(index=False))
+        for i in range(0, len(rows), batch_size):
+            batch = rows[i : i + batch_size]
+            imgs, valid = [], []
+            for row in batch:
+                try:
+                    imgs.append(Image.open(row.image_path).convert("RGB"))
+                    valid.append(row)
+                except Exception:
+                    pass
+            if not imgs:
+                continue
+            inputs = processor(images=imgs, return_tensors="pt").to(device)
+            with torch.no_grad():
+                out = model(**inputs)
+            batch_vecs = out.last_hidden_state[:, 0, :].cpu().numpy()
+            for j, row in enumerate(valid):
+                vecs.append(batch_vecs[j])
+                ids.append(hashlib.md5(str(row.image_path).encode()).hexdigest()[:12])
+                sources.append(str(getattr(row, "source_dataset", "")))
+                paths.append(str(row.image_path))
+                lv = int(getattr(row, label_col, default_label)) if label_col else default_label
+                labels_out.append(lv)
+            if (i // batch_size) % 50 == 0:
+                console.print(f"  {desc}: {len(vecs)}/{len(rows)} …")
+        console.print(f"  {desc}: done — {len(vecs)} embeddings")
+        return vecs, ids, sources, paths, labels_out
+
+    # ── Load backbone ──────────────────────────────────────────────────────────
+    console.print(f"Loading backbone from {backbone} …")
+    processor = AutoImageProcessor.from_pretrained("facebook/dinov2-base")
+    model = AutoModel.from_pretrained("facebook/dinov2-base")
+    if backbone.exists():
+        state_dict = torch.load(str(backbone), map_location="cpu", weights_only=True)
+        model.load_state_dict(state_dict, strict=False)
+        console.print("  fine-tuned weights loaded")
+    else:
+        console.print("[yellow]  backbone not found — using base DINOv2 weights[/yellow]")
+    model.eval().to(device)
+
+    all_vecs: list[np.ndarray] = []
+    all_ids: list[str] = []
+    all_sources: list[str] = []
+    all_paths: list[str] = []
+    all_labels: list[int] = []
+
+    # ── Road quality images (pre-computed embeddings) ──────────────────────────
+    if embeddings_file.exists():
+        console.print("Loading pre-computed road embeddings…")
+        emb_df = pd.read_parquet(embeddings_file)
+        emb_df = emb_df[emb_df["kind"] == "full"].reset_index(drop=True)
+        all_vecs.extend(list(np.stack(emb_df["embedding"].to_numpy())))
+        all_ids.extend(emb_df["image_path"].apply(lambda p: hashlib.md5(p.encode()).hexdigest()[:12]).tolist())
+        all_sources.extend(emb_df["source_dataset"].tolist())
+        all_paths.extend(emb_df["image_path"].tolist())
+        all_labels.extend([-1] * len(emb_df))
+        console.print(f"  {len(emb_df)} road images loaded")
+
+    # ── Crack manifest ─────────────────────────────────────────────────────────
+    crack_manifest = Path("data/processed/crack_manifest.parquet")
+    if crack_manifest.exists():
+        console.print("Embedding crack manifest…")
+        crack_df = pd.read_parquet(crack_manifest)
+        v, i, s, p, lv = _embed_df(crack_df, "has_crack", 1, "crack")
+        all_vecs.extend(v); all_ids.extend(i); all_sources.extend(s); all_paths.extend(p); all_labels.extend(lv)
+
+    # ── Defect manifest ────────────────────────────────────────────────────────
+    defect_manifest = Path("data/processed/defect_manifest.parquet")
+    if defect_manifest.exists():
+        console.print("Embedding defect manifest…")
+        defect_df = pd.read_parquet(defect_manifest)
+        lc = "has_crack" if "has_crack" in defect_df.columns else None
+        v, i, s, p, lv = _embed_df(defect_df, lc, -1, "defect")
+        all_vecs.extend(v); all_ids.extend(i); all_sources.extend(s); all_paths.extend(p); all_labels.extend(lv)
+
+    # ── Survey frames ──────────────────────────────────────────────────────────
+    survey_manifest = Path("data/processed/survey_frames_manifest.parquet")
+    if survey_manifest.exists():
+        console.print("Embedding survey frames…")
+        survey_df = pd.read_parquet(survey_manifest)
+        v, i, s, p, lv = _embed_df(survey_df, None, -1, "survey")
+        all_vecs.extend(v); all_ids.extend(i); all_sources.extend(s); all_paths.extend(p); all_labels.extend(lv)
+
+    total = len(all_vecs)
+    console.print(f"\nTotal vectors: {total}")
+
+    # ── UMAP ───────────────────────────────────────────────────────────────────
+    from sklearn.preprocessing import normalize as sk_normalize
+    mat = np.array(all_vecs, dtype="float32")
+    # L2-normalize so cosine similarity = euclidean on the unit sphere;
+    # avoids the circular ring artifact from euclidean on raw ViT CLS tokens
+    mat = sk_normalize(mat, norm="l2")
+
+    umap_idx = np.arange(total)
+    if umap_sample and umap_sample < total:
+        rng = np.random.default_rng(42)
+        umap_idx = rng.choice(total, umap_sample, replace=False)
+        console.print(f"UMAP sample: {umap_sample}/{total} points")
+    else:
+        console.print(f"Running UMAP on all {total} vectors…")
+
+    reducer = UMAP(
+        n_components=2,
+        n_neighbors=30,      # was 15 — larger captures global structure, reduces ring artifacts
+        min_dist=0.05,       # was 0.1 — tighter clusters reveal real groupings
+        metric="euclidean",  # on L2-normalised vecs this equals cosine; faster than metric='cosine'
+        random_state=42,
+        verbose=True,
+    )
+    coords_sample = reducer.fit_transform(mat[umap_idx])
+
+    # Project remaining points if sampled
+    if umap_sample and umap_sample < total:
+        console.print("Projecting remaining points…")
+        remaining = np.setdiff1d(np.arange(total), umap_idx)
+        coords_remaining = reducer.transform(mat[remaining])
+        coords = np.empty((total, 2), dtype="float32")
+        coords[umap_idx] = coords_sample
+        coords[remaining] = coords_remaining
+    else:
+        coords = coords_sample
+
+    result_df = pd.DataFrame({
+        "id": all_ids,
+        "image_path": all_paths,
+        "x": coords[:, 0].astype("float32"),
+        "y": coords[:, 1].astype("float32"),
+        "has_crack": np.array(all_labels, dtype="int8"),
+        "source_dataset": all_sources,
+    })
+    output.parent.mkdir(parents=True, exist_ok=True)
+    result_df.to_parquet(output, index=False)
+    console.print(f"[green]Saved {len(result_df)} points → {output}[/green]")
+
+
+@app.command("label-ui")
+def label_ui_cmd(
+    manifest: Path = typer.Option(
+        Path("data/processed/crack_manifest.parquet"), help="Manifest to label."
+    ),
+    corrections: Path = typer.Option(
+        Path("data/processed/label_corrections.parquet"), help="Where to save corrections."
+    ),
+    host: str = typer.Option("127.0.0.1", help="Host."),
+    port: int = typer.Option(8765, help="Port."),
+) -> None:
+    """Start the web-based image labeling UI for crack manifest review."""
+    import threading
+    import time
+    import webbrowser
+
+    from tarmac.labeling.server import run_server
+
+    def _open() -> None:
+        time.sleep(1.2)
+        webbrowser.open(f"http://{host}:{port}")
+
+    threading.Thread(target=_open, daemon=True).start()
+    console.print(f"Label UI at http://{host}:{port}  (Ctrl+C to stop)")
+    run_server(manifest, corrections, host, port)
 
 
 @app.command()

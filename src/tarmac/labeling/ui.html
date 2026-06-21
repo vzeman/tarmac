@@ -1,0 +1,2802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tarmac Label UI</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f172a; --surface: #1e293b; --surface2: #334155;
+      --accent: #3b82f6; --primary: #e94560;
+      --crack: #22c55e; --no-crack: #ef4444; --unknown: #94a3b8;
+      --corrected: #f59e0b; --text: #e2e8f0; --text-muted: #94a3b8;
+      --border: #334155; --radius: 6px;
+    }
+    body { background: var(--bg); color: var(--text); font-family: system-ui,-apple-system,sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Top bar */
+    .topbar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; min-height: 46px; }
+    .topbar h1 { font-size: 1rem; font-weight: 700; color: var(--primary); white-space: nowrap; }
+    .stats { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
+    .stat-badge { font-size: 0.72rem; padding: 2px 8px; border-radius: 20px; background: var(--surface2); color: var(--text-muted); white-space: nowrap; }
+    .stat-badge.s-crack { background: #052e16; color: var(--crack); }
+    .stat-badge.s-nocrack { background: #450a0a; color: var(--no-crack); }
+    .stat-badge.s-corr { background: #431407; color: var(--corrected); }
+    .btn-icon { background: var(--surface2); border: 1px solid var(--border); color: var(--text-muted); padding: 4px 10px; border-radius: var(--radius); cursor: pointer; font-size: 0.78rem; }
+    .btn-icon:hover { color: var(--text); border-color: var(--accent); }
+
+    /* Filter bar */
+    .filterbar { display: flex; align-items: center; gap: 10px; padding: 6px 14px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap; min-height: 40px; }
+    .filter-group { display: flex; align-items: center; gap: 5px; }
+    .filter-label { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
+    .pill-group { display: flex; gap: 3px; }
+    .pill { padding: 3px 9px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.72rem; transition: all 0.12s; }
+    .pill:hover { border-color: var(--accent); color: var(--text); }
+    .pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .mode-pills { display: flex; gap: 3px; }
+    .mode-pill { padding: 3px 11px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.72rem; font-weight: 500; transition: all 0.12s; }
+    .mode-pill:hover { border-color: var(--accent); color: var(--text); }
+    .mode-pill.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .spacer { flex: 1; }
+    .btn-sm { padding: 3px 9px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted); cursor: pointer; font-size: 0.72rem; }
+    .btn-sm:hover { color: var(--text); border-color: var(--accent); }
+    .filter-sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+
+    /* Scatter panel */
+    .scatter-panel { background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; width: 100%; }
+    .scatter-header { padding: 5px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; color: var(--text-muted); user-select: none; }
+    .scatter-header:hover { background: rgba(255,255,255,0.03); }
+    .scatter-header-left { display: flex; align-items: center; gap: 8px; }
+    .scatter-body { padding: 8px 14px 10px; display: none; }
+    .scatter-body.open { display: block; }
+    #scatter-canvas { display: block; width: 100%; height: 240px; cursor: crosshair; border-radius: var(--radius); background: #080d1a; }
+    .scatter-controls { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 0.75rem; flex-wrap: wrap; }
+    .scatter-legend { display: flex; gap: 10px; font-size: 0.7rem; color: var(--text-muted); }
+    .legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+    .btn-scatter { padding: 3px 10px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted); cursor: pointer; font-size: 0.72rem; }
+    .btn-scatter:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+    .btn-scatter.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn-scatter.primary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* Main layout */
+    .main { display: flex; flex: 1; overflow: hidden; }
+
+    /* Sidebar */
+    .sidebar { width: 196px; min-width: 196px; background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; }
+    .sidebar-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 10px 5px 12px; cursor: pointer; font-size: 0.75rem; border-left: 3px solid transparent; user-select: none; }
+    .sidebar-item:hover { background: var(--surface2); }
+    .sidebar-item.active { border-left-color: var(--accent); background: rgba(59,130,246,0.1); color: var(--text); }
+    .sidebar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; color: var(--text-muted); }
+    .sidebar-item.active .sidebar-name { color: var(--text); }
+    .sidebar-count { font-size: 0.68rem; color: var(--text-muted); flex-shrink: 0; margin-left: 4px; }
+
+    /* Grid area */
+    .grid-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .grid-scroll { flex: 1; overflow-y: auto; padding: 10px; padding-bottom: 60px; }
+    .image-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+    @media (max-width: 1200px) { .image-grid { grid-template-columns: repeat(4, 1fr); } }
+    @media (max-width: 900px)  { .image-grid { grid-template-columns: repeat(3, 1fr); } }
+
+    /* Image cards */
+    .img-card { background: var(--surface); border-radius: var(--radius); overflow: hidden; cursor: pointer; border: 2px solid transparent; transition: border-color 0.1s, box-shadow 0.1s; user-select: none; }
+    .img-card:hover { border-color: var(--surface2); box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+    .img-card.selected { border-color: var(--accent) !important; box-shadow: 0 0 0 1px var(--accent); }
+    .img-card.focused  { border-color: #facc15 !important; box-shadow: 0 0 0 2px #facc15; }
+    .card-thumb-wrap { position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; background: var(--surface2); }
+    .img-card .thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .card-ann-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    .img-card .thumb.broken { visibility: hidden; }
+    .card-info { padding: 3px 5px; display: flex; align-items: center; gap: 3px; min-height: 22px; }
+    .card-source { font-size: 0.62rem; color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .corr-star { color: var(--corrected); font-size: 0.65rem; flex-shrink: 0; }
+    .badge { font-size: 0.58rem; padding: 1px 5px; border-radius: 8px; font-weight: 700; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.02em; }
+    .badge.crack    { background: #052e16; color: var(--crack); }
+    .badge.no-crack { background: #450a0a; color: var(--no-crack); }
+    .badge.unknown  { background: #1e293b; color: var(--unknown); border: 1px solid var(--border); }
+    .card-mlabels { display: flex; gap: 3px; padding: 0 5px 4px; flex-wrap: wrap; }
+    .mlabel-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Pagination */
+    .pagination { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 7px 14px; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; font-size: 0.78rem; color: var(--text-muted); }
+    .btn-page { padding: 3px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted); cursor: pointer; font-size: 0.78rem; }
+    .btn-page:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+    .btn-page:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* Batch / focus bar (fixed bottom) */
+    .batch-bar { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: #1a2744; border-top: 1px solid #2d4a7a; color: #fff; padding: 6px 14px; align-items: center; gap: 8px; z-index: 100; min-height: 44px; box-shadow: 0 -2px 12px rgba(0,0,0,0.5); flex-wrap: wrap; }
+    .batch-bar.visible { display: flex; }
+    .batch-count { font-weight: 600; font-size: 0.82rem; white-space: nowrap; flex-shrink: 0; min-width: 70px; }
+    .batch-sep { width: 1px; height: 22px; background: rgba(255,255,255,0.15); flex-shrink: 0; }
+    .field-tabs { display: flex; gap: 3px; flex-shrink: 0; }
+    .field-tab { padding: 3px 9px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: rgba(255,255,255,0.55); cursor: pointer; font-size: 0.72rem; transition: all 0.1s; }
+    .field-tab:hover { color: #fff; border-color: rgba(255,255,255,0.5); }
+    .field-tab.active { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.7); color: #fff; font-weight: 600; }
+    .batch-values { display: flex; gap: 4px; flex-wrap: wrap; }
+    .btn-val { padding: 4px 10px; border-radius: var(--radius); border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; font-size: 0.78rem; transition: background 0.1s; white-space: nowrap; }
+    .btn-val:hover { background: rgba(255,255,255,0.2); }
+    .btn-val.revert-val { background: transparent; border-style: dashed; opacity: 0.6; }
+    .btn-val.revert-val:hover { opacity: 1; }
+    .key-hint { font-size: 0.65rem; opacity: 0.65; margin-right: 3px; font-family: monospace; }
+    .preset-btns { display: flex; gap: 4px; }
+    .btn-preset { padding: 3px 9px; border-radius: var(--radius); border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); cursor: pointer; font-size: 0.72rem; white-space: nowrap; }
+    .btn-preset:hover:not(.empty) { background: rgba(255,255,255,0.18); color: #fff; }
+    .btn-preset.empty { border-style: dashed; opacity: 0.3; cursor: default; }
+    .btn-batch-clear { padding: 4px 10px; border-radius: var(--radius); border: 1px solid rgba(255,255,255,0.2); background: transparent; color: rgba(255,255,255,0.55); cursor: pointer; font-size: 0.78rem; margin-left: auto; }
+    .btn-batch-clear:hover { color: #fff; }
+
+    /* Modal overlay */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 200; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+
+    /* Detail modal */
+    .detail-modal { background: var(--surface); border-radius: 10px; padding: 14px; max-width: 92vw; max-height: 94vh; display: flex; flex-direction: column; gap: 10px; min-width: 480px; overflow-y: auto; }
+    .modal-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+    .modal-top-info { min-width: 0; }
+    .modal-path { font-size: 0.68rem; color: var(--text-muted); word-break: break-all; max-width: 600px; }
+    .modal-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+    .close-btn { background: none; border: none; color: var(--text-muted); font-size: 1.1rem; cursor: pointer; flex-shrink: 0; padding: 2px 6px; border-radius: var(--radius); }
+    .close-btn:hover { background: var(--surface2); color: var(--text); }
+    .modal-img-row { display: flex; align-items: center; gap: 8px; }
+    .nav-btn { background: var(--surface2); border: none; color: var(--text); font-size: 1.2rem; padding: 10px 14px; border-radius: var(--radius); cursor: pointer; flex-shrink: 0; }
+    .nav-btn:hover { background: var(--accent); }
+    .nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    #modal-img { max-height: 56vh; max-width: calc(92vw - 130px); border-radius: var(--radius); display: block; }
+    #modal-img-wrap { position: relative; display: inline-block; line-height: 0; }
+    #modal-ann-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; border-radius: var(--radius); }
+    .modal-label-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 0.75rem; }
+    .modal-label-row .lbl { color: var(--text-muted); }
+    .modal-label-row .badge { font-size: 0.7rem; padding: 2px 7px; }
+    .modal-categories { display: flex; flex-direction: column; gap: 5px; }
+    .label-cat-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--radius); border: 1px solid transparent; cursor: pointer; transition: border-color 0.1s; }
+    .label-cat-row:hover { border-color: var(--border); }
+    .label-cat-row.active-cat { border-color: var(--accent); background: rgba(59,130,246,0.07); }
+    .label-cat-name { font-size: 0.72rem; color: var(--text-muted); min-width: 58px; flex-shrink: 0; font-weight: 500; }
+    .label-cat-row.active-cat .label-cat-name { color: var(--text); }
+    .label-cat-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+    .btn-modal-val { padding: 4px 10px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted); cursor: pointer; font-size: 0.78rem; transition: all 0.1s; white-space: nowrap; }
+    .btn-modal-val:hover { color: var(--text); border-color: var(--text-muted); }
+    .btn-modal-val.active { color: #fff; border-color: transparent; font-weight: 600; }
+    .btn-modal-val.revert-val { font-size: 0.7rem; padding: 4px 8px; opacity: 0.5; background: transparent; }
+    .btn-modal-val.revert-val:hover { opacity: 1; }
+    .modal-key-hint { font-size: 0.6rem; opacity: 0.6; margin-right: 3px; font-family: monospace; }
+    .modal-footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 8px; }
+    .btn-label { padding: 6px 12px; border-radius: var(--radius); border: none; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
+    .btn-label.revert { background: var(--surface2); color: var(--text); border: 1px solid var(--border); font-weight: 400; }
+    .btn-label:hover { opacity: 0.88; }
+    .auto-advance-wrap { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 0.75rem; color: var(--text-muted); cursor: pointer; }
+    .auto-advance-wrap input { cursor: pointer; }
+    .modal-preset-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+    .modal-preset-lbl { font-size: 0.68rem; color: var(--text-muted); }
+    .btn-modal-preset { padding: 3px 8px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted); cursor: pointer; font-size: 0.7rem; white-space: nowrap; }
+    .btn-modal-preset:hover:not(.empty) { color: var(--text); border-color: var(--accent); }
+    .btn-modal-preset.empty { border-style: dashed; opacity: 0.3; cursor: default; }
+    .btn-modal-preset.define { border-style: dashed; opacity: 0.6; }
+    .btn-modal-preset.define:hover { opacity: 1; }
+
+    /* Help modal */
+    .help-modal { background: var(--surface); border-radius: 10px; padding: 18px; min-width: 300px; max-width: 480px; max-height: 90vh; overflow-y: auto; }
+    .help-modal h3 { font-size: 0.95rem; margin-bottom: 10px; }
+    .shortcut-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    .shortcut-table tr td { padding: 3px 6px; }
+    .shortcut-table tr td:first-child { white-space: nowrap; }
+    kbd { background: var(--surface2); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; font-size: 0.75rem; font-family: monospace; }
+    .help-note { margin-top: 8px; font-size: 0.72rem; color: var(--text-muted); }
+    .help-section { margin-top: 12px; }
+    .help-section-title { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 54px; right: 14px; background: var(--surface2); color: var(--text); padding: 7px 14px; border-radius: var(--radius); font-size: 0.82rem; z-index: 400; opacity: 0; transition: opacity 0.18s; pointer-events: none; border-left: 3px solid var(--crack); max-width: 280px; }
+    .toast.show { opacity: 1; }
+    .toast.toast-nocrack { border-left-color: var(--no-crack); }
+    .toast.toast-revert  { border-left-color: var(--text-muted); }
+    .toast.toast-batch   { border-left-color: var(--corrected); }
+
+    /* Similarity suggestions */
+    .suggest-modal { background: var(--surface); border-radius: 10px; padding: 20px; width: 1200px; max-width: 96vw; max-height: 96vh; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+    .suggest-modal h3 { font-size: 0.92rem; font-weight: 700; margin: 0; }
+    .suggest-info { font-size: 0.78rem; color: var(--text-muted); }
+    .suggest-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+    .suggest-tag { font-size: 0.75rem; padding: 2px 8px; border-radius: 99px; background: var(--surface2); border: 1px solid var(--border); }
+    .suggest-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; overflow-y: auto; flex: 1; min-height: 0; align-content: start; padding-right: 4px; }
+    .suggest-card { position: relative; cursor: pointer; border-radius: var(--radius); overflow: hidden; border: 2px solid transparent; background: var(--surface2); min-height: 160px; }
+    .suggest-card.checked { border-color: var(--accent); }
+    .suggest-card img { width: 100%; height: auto; display: block; }
+    .suggest-card .s-check { position: absolute; top: 4px; left: 4px; width: 18px; height: 18px; border-radius: 4px; border: 2px solid rgba(255,255,255,0.7); background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; }
+    .suggest-card.checked .s-check { background: var(--accent); border-color: var(--accent); }
+    .suggest-card .s-src { position: absolute; bottom: 0; left: 0; right: 0; font-size: 0.6rem; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.55); padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .suggest-card.already-labeled { opacity: 0.45; }
+    .suggest-footer { display: flex; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid var(--border); }
+    .suggest-footer .sel-count { flex: 1; font-size: 0.8rem; color: var(--text-muted); }
+
+    /* Annotation modal (crack mask + bbox) */
+    .ann-modal { background: var(--surface); border-radius: 0; padding: 12px 16px; width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+    .ann-header { display: flex; align-items: center; gap: 8px; }
+    .ann-header h3 { font-size: 0.9rem; font-weight: 700; margin: 0; white-space: nowrap; }
+    .ann-header .ann-path { flex: 1; font-size: 0.7rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ann-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .ann-tool-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .ann-tab-btn { opacity: 0.6; }
+    .ann-tab-btn.active { opacity: 1; border-color: var(--accent); background: var(--accent); color: #fff; }
+    .ann-canvas-area { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: center; justify-content: center; background: #0a0a0a; border-radius: 6px; }
+    #ann-canvas { display: block; max-width: 100%; max-height: 100%; cursor: crosshair; }
+    #ann-bbox-area { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: center; justify-content: center; background: #0a0a0a; border-radius: 6px; }
+    #ann-bbox-canvas { display: block; max-width: 100%; max-height: 100%; cursor: crosshair; }
+    #ann-bbox-list-area { max-height: 120px; overflow-y: auto; border-top: 1px solid var(--border); padding: 6px 0; }
+    .ann-footer { display: flex; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .ann-footer .ann-status { flex: 1; font-size: 0.78rem; color: var(--text-muted); }
+    .ann-annotated-badge { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; margin-left: 4px; vertical-align: middle; }
+
+    /* Schema editor */
+    .schema-modal { background: var(--surface); border-radius: 10px; padding: 20px; width: 560px; max-width: 96vw; max-height: 88vh; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+    .schema-modal h3 { font-size: 0.95rem; font-weight: 700; margin: 0; }
+    .schema-cat { background: var(--surface2); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .schema-cat-header { display: flex; align-items: center; gap: 8px; }
+    .schema-cat-header input { flex: 1; }
+    .schema-val-row { display: grid; grid-template-columns: 80px 1fr 60px 52px 24px; gap: 5px; align-items: center; }
+    .schema-val-row input { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); padding: 3px 6px; font-size: 0.78rem; width: 100%; }
+    .schema-val-row input[type=color] { padding: 1px 3px; height: 26px; cursor: pointer; }
+    .schema-lbl { font-size: 0.68rem; color: var(--text-muted); text-align: center; }
+    .schema-del { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1rem; padding: 0 4px; line-height: 1; }
+    .schema-del:hover { color: #fca5a5; }
+    .btn-schema-add { background: none; border: 1px dashed var(--border); color: var(--text-muted); border-radius: var(--radius); padding: 4px 10px; cursor: pointer; font-size: 0.75rem; }
+    .btn-schema-add:hover { border-color: var(--accent); color: var(--text); }
+    .schema-footer { display: flex; gap: 8px; justify-content: flex-end; padding-top: 4px; border-top: 1px solid var(--border); }
+
+    /* Empty / loading */
+    .empty-state { display: flex; align-items: center; justify-content: center; height: 160px; color: var(--text-muted); font-size: 0.85rem; grid-column: 1 / -1; }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <h1>Tarmac Label UI</h1>
+  <div class="stats">
+    <span class="stat-badge"><span id="stat-total">-</span> labeled</span>
+    <span class="stat-badge s-crack"><span id="stat-crack">-</span> crack</span>
+    <span class="stat-badge s-nocrack"><span id="stat-nocrack">-</span> no-crack</span>
+    <span class="stat-badge s-corr"><span id="stat-corr">-</span> corrections</span>
+  </div>
+  <button class="btn-icon" onclick="showSchemaEditor()">Schema</button>
+  <button class="btn-icon" onclick="showHelp()">Keys</button>
+</div>
+
+<!-- Filter bar -->
+<div class="filterbar">
+  <div class="filter-group">
+    <span class="filter-label">Mode:</span>
+    <div class="mode-pills">
+      <button class="mode-pill active" id="mode-labeled"   onclick="setMode('labeled')">Labeled</button>
+      <button class="mode-pill"        id="mode-unlabeled" onclick="setMode('unlabeled')">Unlabeled</button>
+      <button class="mode-pill"        id="mode-defect"    onclick="setMode('defect')">Defect</button>
+      <button class="mode-pill"        id="mode-survey"    onclick="setMode('survey')" title="Video survey frames imported via import-frames">Survey</button>
+    </div>
+  </div>
+  <div class="filter-sep"></div>
+  <div class="filter-group">
+    <span class="filter-label">Split:</span>
+    <div class="pill-group" id="split-pills">
+      <button class="pill active" data-value=""      onclick="setPill(this,'split')">All</button>
+      <button class="pill"        data-value="train" onclick="setPill(this,'split')">Train</button>
+      <button class="pill"        data-value="val"   onclick="setPill(this,'split')">Val</button>
+      <button class="pill"        data-value="test"  onclick="setPill(this,'split')">Test</button>
+    </div>
+  </div>
+  <div class="filter-sep"></div>
+  <div class="filter-group">
+    <span class="filter-label">Annotation:</span>
+    <div class="pill-group" id="annotation-pills">
+      <button class="pill active" data-value=""             onclick="setPill(this,'annotation')">All</button>
+      <button class="pill"        data-value="annotated"    onclick="setPill(this,'annotation')">Has annotation</button>
+      <button class="pill"        data-value="unannotated"  onclick="setPill(this,'annotation')">No annotation</button>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="filter-group">
+    <span class="filter-label">Per page:</span>
+    <div class="pill-group">
+      <button class="perpage-pill pill active" data-value="50"  onclick="setPerPage(50)">50</button>
+      <button class="perpage-pill pill"        data-value="100" onclick="setPerPage(100)">100</button>
+      <button class="perpage-pill pill"        data-value="200" onclick="setPerPage(200)">200</button>
+      <button class="perpage-pill pill"        data-value="500" onclick="setPerPage(500)">500</button>
+    </div>
+  </div>
+  <div class="filter-sep"></div>
+  <button class="btn-sm" onclick="selectPage()">Select Page</button>
+  <button class="btn-sm" onclick="clearSelection()">Clear</button>
+  <div class="filter-sep"></div>
+  <button class="btn-sm" id="btn-toggle-ann-overlay" onclick="toggleGridAnnotations()" title="Show/hide crack annotation overlays on thumbnails">Show Cracks</button>
+  <button class="btn-sm" id="btn-manage-datasets" onclick="showDatasetManager()" title="Import, delete, or manage survey datasets" style="display:none">Datasets</button>
+</div>
+
+<!-- Category filters (populated from schema) -->
+<div class="filterbar" id="cat-filterbar" style="display:none"></div>
+
+<!-- Main -->
+<div class="main">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="grid-area">
+
+    <!-- Semantic scatter panel (inside grid area so filters above don't push it off screen) -->
+    <div class="scatter-panel" id="scatter-panel" style="flex-shrink:0">
+      <div class="scatter-header" onclick="toggleScatter()">
+        <div class="scatter-header-left">
+          <span>&#9658; Semantic Scatter</span>
+          <small id="scatter-status" style="color:var(--text-muted)">click to expand</small>
+        </div>
+        <span id="scatter-toggle-icon" style="font-size:0.7rem;color:var(--text-muted)">&#9660;</span>
+      </div>
+      <div id="scatter-body" class="scatter-body">
+        <canvas id="scatter-canvas" width="1" height="1"></canvas>
+        <div class="scatter-controls">
+          <div class="scatter-legend">
+            <span><span class="legend-dot" style="background:#22c55e"></span>Crack</span>
+            <span><span class="legend-dot" style="background:#ef4444"></span>No Crack</span>
+            <span><span class="legend-dot" style="background:#475569"></span>Unknown</span>
+            <span><span class="legend-dot" style="background:#facc15"></span>Selected</span>
+            <span><span class="legend-dot" style="background:#888;outline:1.5px solid #fff;outline-offset:1px"></span>Labeled</span>
+          </div>
+          <span id="scatter-sel-count" style="color:var(--text-muted)">0 selected</span>
+          <button class="btn-scatter primary" id="btn-load-scatter" onclick="loadScatterSelection()" disabled>Load into grid</button>
+          <button class="btn-scatter" onclick="clearScatterSel()">Clear</button>
+          <button class="btn-scatter" onclick="resetScatterZoom()" title="Reset zoom">Reset zoom</button>
+          <label style="margin-left:auto;font-size:0.72rem;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:4px">
+            <input type="checkbox" id="scatter-show-unknown" checked onchange="renderScatter()"> unknown
+          </label>
+          <label style="font-size:0.72rem;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:4px">
+            <input type="checkbox" id="scatter-show-corrected" checked onchange="renderScatter()"> labeled
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-scroll" id="grid-scroll">
+      <div class="image-grid" id="image-grid">
+        <div class="empty-state">Loading...</div>
+      </div>
+    </div>
+    <div class="pagination">
+      <button class="btn-page" id="btn-prev" onclick="goToPage(S.page - 1)" disabled>Prev</button>
+      <span id="page-info">-</span>
+      <button class="btn-page" id="btn-next" onclick="goToPage(S.page + 1)" disabled>Next</button>
+    </div>
+  </div>
+</div>
+
+<!-- Batch / focus bar (fixed bottom) -->
+<div class="batch-bar" id="batch-bar">
+  <span class="batch-count" id="batch-count">0 selected</span>
+  <div class="batch-sep"></div>
+  <div class="field-tabs"   id="batch-field-tabs"></div>
+  <div class="batch-sep"    id="batch-sep2"></div>
+  <div class="batch-values" id="batch-values"></div>
+  <div class="preset-btns"  id="batch-presets"></div>
+  <div id="batch-survey-actions" style="display:none;gap:4px;align-items:center">
+    <div class="batch-sep"></div>
+    <button class="btn-preset" onclick="showMoveDataset()" title="Move selected images to another dataset">Move to…</button>
+    <button class="btn-preset" style="color:#f87171;border-color:#f8717133" onclick="confirmDeleteSurveyImages()" title="Remove selected images from survey manifest">Remove</button>
+  </div>
+  <button class="btn-batch-clear" onclick="clearSelection(); clearFocus()">x Deselect</button>
+</div>
+
+<!-- Detail modal -->
+<div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="detail-modal">
+    <div class="modal-top">
+      <div class="modal-top-info">
+        <div class="modal-path" id="modal-path"></div>
+        <div class="modal-meta" id="modal-meta"></div>
+      </div>
+      <button class="close-btn" onclick="closeModal()">x</button>
+    </div>
+    <div class="modal-img-row">
+      <button class="nav-btn" id="btn-modal-prev" onclick="modalNav(-1)">&lt;</button>
+      <div id="modal-img-wrap">
+        <img id="modal-img" alt="" style="min-height:120px;min-width:120px;background:var(--surface2)">
+        <canvas id="modal-ann-canvas" style="display:none"></canvas>
+      </div>
+      <button class="nav-btn" id="btn-modal-next" onclick="modalNav(1)">&gt;</button>
+    </div>
+    <div class="modal-label-row" id="modal-label-row"></div>
+    <div class="modal-categories" id="modal-categories"></div>
+    <div class="modal-footer">
+      <div class="modal-preset-row" id="modal-preset-row"></div>
+      <button class="btn-label revert" onclick="doRevertAll()">Revert All (Shift+U)</button>
+      <button class="btn-icon" id="btn-find-similar" onclick="findSimilarFromModal()" title="Find visually similar images and suggest same labels">Find Similar</button>
+      <button class="btn-icon" id="btn-predict-crack" onclick="predictAnnotation()" title="Run AI model and auto-save crack mask">Predict Crack</button>
+      <button class="btn-icon" id="btn-annotate-crack" onclick="openAnnotationFromModal()" title="Open editor to draw or refine crack mask">Edit Annotation<span id="ann-modal-badge" style="display:none" class="ann-annotated-badge"></span></button>
+      <label class="auto-advance-wrap">
+        <input type="checkbox" id="auto-advance" checked> Auto-advance
+      </label>
+    </div>
+  </div>
+</div>
+
+<!-- Help modal -->
+<div class="modal-overlay" id="help-overlay" onclick="if(event.target===this)hideHelp()">
+  <div class="help-modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3>Keyboard Shortcuts</h3>
+      <button class="close-btn" onclick="hideHelp()">x</button>
+    </div>
+    <div class="help-section">
+      <div class="help-section-title">Navigation</div>
+      <table class="shortcut-table">
+        <tr><td><kbd>Arrows</kbd></td><td>Move grid focus / prev-next in modal</td></tr>
+        <tr><td><kbd>J</kbd><kbd>K</kbd><kbd>H</kbd><kbd>L</kbd></td><td>Vim-style grid / modal nav</td></tr>
+        <tr><td><kbd>Enter</kbd> / <kbd>Space</kbd></td><td>Open modal for focused card</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Close modal</td></tr>
+      </table>
+    </div>
+    <div class="help-section">
+      <div class="help-section-title">Labeling</div>
+      <table class="shortcut-table" id="help-shortcut-table">
+        <tr><td><kbd>1</kbd>-<kbd>9</kbd></td><td>Nth value in active field</td></tr>
+        <tr><td><kbd>Tab</kbd></td><td>Cycle active label field</td></tr>
+        <tr><td><kbd>U</kbd></td><td>Revert active field</td></tr>
+        <tr><td><kbd>Shift+U</kbd></td><td>Revert ALL labels</td></tr>
+      </table>
+    </div>
+    <div class="help-section">
+      <div class="help-section-title">Selection and Batch</div>
+      <table class="shortcut-table">
+        <tr><td>Shift+Click</td><td>Range select</td></tr>
+        <tr><td>Ctrl/Cmd+Click</td><td>Toggle select</td></tr>
+        <tr><td colspan="2" style="font-size:0.7rem;color:var(--text-muted)">With cards selected, any label key applies to all</td></tr>
+      </table>
+    </div>
+    <div class="help-section">
+      <div class="help-section-title">Presets (F1-F4)</div>
+      <table class="shortcut-table">
+        <tr><td><kbd>F1</kbd>-<kbd>F4</kbd></td><td>Apply saved preset</td></tr>
+        <tr><td colspan="2" style="font-size:0.7rem;color:var(--text-muted)">Right-click a card to save its labels as a preset</td></tr>
+      </table>
+    </div>
+    <p class="help-note">Scatter: drag to lasso select then "Load into grid".</p>
+    <p class="help-note">Corrections are saved automatically.</p>
+  </div>
+</div>
+
+<!-- Similarity suggestions modal -->
+<div class="modal-overlay" id="suggest-overlay" onclick="if(event.target===this)hideSuggest()">
+  <div class="suggest-modal">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3>Similar Images — Apply Same Labels?</h3>
+      <button class="close-btn" onclick="hideSuggest()">x</button>
+    </div>
+    <div class="suggest-info" id="suggest-info"></div>
+    <div class="suggest-tags" id="suggest-tags"></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn-sm" onclick="suggestSelectAll()">Select All</button>
+      <button class="btn-sm" onclick="suggestSelectNone()">Deselect All</button>
+      <button class="btn-sm" onclick="suggestToggleUnlabeled()">Only unlabeled</button>
+    </div>
+    <div class="suggest-grid" id="suggest-grid"></div>
+    <div class="suggest-footer">
+      <span class="sel-count" id="suggest-sel-count"></span>
+      <button class="btn-icon" onclick="hideSuggest()">Cancel</button>
+      <button class="btn-icon" id="suggest-apply-btn" style="background:var(--accent);color:#fff;border-color:var(--accent)" onclick="suggestApply()">Apply to selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Schema editor modal -->
+<div class="modal-overlay" id="schema-overlay" onclick="if(event.target===this)hideSchemaEditor()">
+  <div class="schema-modal">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3>Edit Tag Schema</h3>
+      <button class="close-btn" onclick="hideSchemaEditor()">x</button>
+    </div>
+    <div id="schema-editor-body"></div>
+    <div class="schema-footer">
+      <button class="btn-schema-add" onclick="schemaAddCategory()">+ Add Category</button>
+      <button class="btn-icon" onclick="hideSchemaEditor()">Cancel</button>
+      <button class="btn-icon" style="background:var(--accent);color:#fff;border-color:var(--accent)" onclick="schemaSave()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dataset management modal -->
+<div class="modal-overlay" id="datasets-overlay" onclick="if(event.target===this)hideDatasetManager()">
+  <div class="schema-modal" style="max-width:700px;min-width:400px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-shrink:0">
+      <h3>Manage Survey Datasets</h3>
+      <button class="close-btn" onclick="hideDatasetManager()">x</button>
+    </div>
+
+    <!-- Run folder picker -->
+    <div style="margin-bottom:14px;flex-shrink:0">
+      <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Select run folder to import</div>
+      <div id="run-dir-list" style="display:flex;flex-direction:column;gap:2px;max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:4px">
+        <span style="color:var(--text-muted);font-size:0.8rem;padding:6px">Loading…</span>
+      </div>
+    </div>
+
+    <!-- Dataset name + import button -->
+    <div style="margin-bottom:10px;flex-shrink:0">
+      <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Dataset name (optional)</div>
+      <div style="display:flex;gap:6px">
+        <input id="dataset-run-dir" type="text" placeholder="Selected run path will appear here" readonly style="flex:1;font-size:0.8rem;padding:5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:default">
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <input id="dataset-name-input" type="text" placeholder="Custom name (defaults to folder name)" style="flex:1;font-size:0.8rem;padding:5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+        <button class="btn-icon" id="btn-do-import" onclick="importSurveyFrames()" style="white-space:nowrap">Import Frames</button>
+      </div>
+      <div id="dataset-import-status" style="font-size:0.75rem;color:var(--text-muted);min-height:18px;margin-top:4px"></div>
+    </div>
+
+    <!-- Existing datasets -->
+    <div style="border-top:1px solid var(--border);padding-top:12px;flex-shrink:0">
+      <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Imported datasets</div>
+      <div id="dataset-list-body" style="min-height:30px;max-height:160px;overflow-y:auto"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Move images to dataset modal -->
+<div class="modal-overlay" id="move-dataset-overlay" onclick="if(event.target===this)hideMoveDataset()">
+  <div class="schema-modal" style="max-width:400px;min-width:300px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h3>Move to Dataset</h3>
+      <button class="close-btn" onclick="hideMoveDataset()">x</button>
+    </div>
+    <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:10px" id="move-count-info"></div>
+    <div style="margin-bottom:10px">
+      <div id="move-dataset-list" style="display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;margin-bottom:8px"></div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <input id="move-new-dataset-name" type="text" placeholder="Or type a new dataset name…" style="flex:1;font-size:0.8rem;padding:5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+        <button class="btn-icon" onclick="doMoveToNew()">Move</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Annotation modal (Crack Mask + Bounding Boxes) -->
+<div class="modal-overlay" id="ann-overlay" onclick="if(event.target===this)hideAnnotation()">
+  <div class="ann-modal">
+    <div class="ann-header">
+      <h3 id="ann-modal-title">Annotation</h3>
+      <span class="ann-path" id="ann-path"></span>
+      <button class="close-btn" onclick="hideAnnotation()">x</button>
+    </div>
+    <div class="ann-toolbar">
+      <button class="btn-sm ann-tab-btn active" id="ann-tab-crack" onclick="setAnnTab('crack')">Crack Mask</button>
+      <button class="btn-sm ann-tab-btn" id="ann-tab-bbox" onclick="setAnnTab('bbox')">Bounding Boxes</button>
+      <div style="width:1px;height:20px;background:var(--border)"></div>
+      <button class="btn-sm ann-tool-btn active" id="ann-btn-draw" onclick="setAnnTool('draw')">Draw</button>
+      <button class="btn-sm ann-tool-btn" id="ann-btn-erase" onclick="setAnnTool('erase')">Erase</button>
+      <label id="ann-brush-label" style="display:flex;align-items:center;gap:4px;font-size:0.78rem;color:var(--text-muted)">
+        Brush <input type="range" id="ann-brush" min="4" max="80" value="20" style="width:70px" oninput="document.getElementById('ann-brush-val').textContent=this.value">
+        <span id="ann-brush-val">20</span>px
+      </label>
+      <div id="ann-crack-sep" style="width:1px;height:20px;background:var(--border)"></div>
+      <button class="btn-sm" id="ann-btn-ai" onclick="toggleAnnHeatmap()" title="Toggle AI heatmap overlay">Show AI</button>
+      <button class="btn-sm" id="ann-load-ai" onclick="loadAIHeatmap()" title="Fetch crack prediction from model">Load AI Prediction</button>
+      <button class="btn-sm" id="ann-use-ai" onclick="useAIasMask()" title="Copy AI prediction into the draw canvas as starting mask">Use AI as Mask</button>
+      <div id="ann-crack-sep2" style="width:1px;height:20px;background:var(--border)"></div>
+      <button class="btn-sm" id="ann-clear-btn" onclick="annClear()">Clear</button>
+      <div id="ann-bbox-class-row" style="display:none;align-items:center;gap:6px;">
+        <span style="font-size:0.78rem;color:var(--text-muted)">Class:</span>
+        <input id="ann-bbox-class" type="text" value="road_marking" list="ann-bbox-class-list" style="width:130px;font-size:0.8rem;padding:2px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text)" placeholder="class name">
+        <datalist id="ann-bbox-class-list">
+          <option value="road_marking">
+          <option value="hydrant">
+          <option value="retarder">
+          <option value="pothole">
+          <option value="crack">
+          <option value="manhole">
+          <option value="sign">
+        </datalist>
+      </div>
+    </div>
+    <div class="ann-canvas-area" id="ann-canvas-area">
+      <canvas id="ann-canvas"></canvas>
+    </div>
+    <div id="ann-bbox-area" style="display:none;flex:1;min-height:0;overflow:auto;align-items:center;justify-content:center;background:#0a0a0a;border-radius:6px;">
+      <canvas id="ann-bbox-canvas"></canvas>
+    </div>
+    <div id="ann-bbox-list-area" style="display:none;">
+      <div style="font-size:0.75rem;color:var(--text-muted);padding:4px 0 2px">Bounding boxes:</div>
+      <div id="ann-bbox-list"></div>
+    </div>
+    <div class="ann-footer">
+      <span class="ann-status" id="ann-status">Ready.</span>
+      <button class="btn-icon" id="ann-delete-btn" onclick="annDelete()" style="color:var(--no-crack);border-color:var(--no-crack)" title="Delete saved annotation">Delete</button>
+      <button class="btn-icon" onclick="hideAnnotation()">Cancel</button>
+      <button class="btn-icon" id="ann-save-btn" style="background:var(--accent);color:#fff;border-color:var(--accent)" onclick="annSave()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Context menu -->
+<div id="ctx-menu" style="display:none;position:fixed;z-index:500;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:4px;min-width:160px;box-shadow:0 4px 16px rgba(0,0,0,0.5)"></div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  // ── Schema and state ─────────────────────────────────────────────────────────
+  var SCHEMA = { available: false, categories: [] };
+
+  var S = {
+    images: [],
+    selected: new Set(),
+    lastClickIdx: null,
+    page: 1, pages: 1, total: 0,
+    perPage: 50,
+    mode: 'labeled',
+    filters: { source: '', split: '', label: '', labelKey: '', labelVal: '', annotation: '' },
+    modalIdx: null,
+    focusIdx: null,
+    activeField: 0,
+    presets: JSON.parse(localStorage.getItem('tarmac-presets') || 'null') || [null,null,null,null],
+    showGridAnnotations: false,
+  };
+
+  var SC = {
+    points: [], sel: new Set(),
+    xRange: [0,1], yRange: [0,1],
+    xBase:  [0,1], yBase:  [0,1],
+    lasso: null,
+    dragging: false, dragStart: null,
+    panning: false, panStart: null, panRangeStart: null,
+    open: false,
+  };
+
+  function gridCols() {
+    var w = window.innerWidth;
+    return w <= 900 ? 3 : w <= 1200 ? 4 : 5;
+  }
+
+  // ── Init ─────────────────────────────────────────────────────────────────────
+  (async function() {
+    await Promise.all([loadSchema(), loadStats(), loadSources()]);
+    await loadImages();
+    setupKeyboard();
+    initScatterEvents();
+  })();
+
+  // ── Schema ───────────────────────────────────────────────────────────────────
+  async function loadSchema() {
+    try {
+      var d = await (await fetch('/api/schema')).json();
+      SCHEMA = d;
+      if (!SCHEMA.categories) SCHEMA.categories = [];
+    } catch(e) { SCHEMA = { available: false, categories: [] }; }
+    renderBatchBar();
+    renderCatFilters();
+    _updateHelpShortcuts();
+  }
+
+  function _updateHelpShortcuts() {
+    if (!SCHEMA.categories.length) return;
+    var rows = '';
+    for (var ci = 0; ci < SCHEMA.categories.length; ci++) {
+      var cat = SCHEMA.categories[ci];
+      for (var vi = 0; vi < cat.values.length; vi++) {
+        var v = cat.values[vi];
+        var keys = v.shortcut ? '<kbd>' + v.shortcut.toUpperCase() + '</kbd> <kbd>' + (vi+1) + '</kbd>' : '<kbd>' + (vi+1) + '</kbd>';
+        rows += '<tr><td>' + keys + '</td><td>' + esc(cat.label) + ': ' + esc(v.label) + '</td></tr>';
+      }
+    }
+    rows += '<tr><td><kbd>Tab</kbd></td><td>Cycle active field</td></tr>';
+    rows += '<tr><td><kbd>U</kbd></td><td>Revert active field</td></tr>';
+    rows += '<tr><td><kbd>Shift+U</kbd></td><td>Revert ALL labels</td></tr>';
+    document.getElementById('help-shortcut-table').innerHTML = rows;
+  }
+
+  // ── API helpers ──────────────────────────────────────────────────────────────
+  async function loadStats() {
+    var d = await (await fetch('/api/stats')).json();
+    var lbl = d.labeled || {};
+    document.getElementById('stat-total').textContent   = fmt(lbl.total    || 0);
+    document.getElementById('stat-crack').textContent   = fmt(lbl.crack    || 0);
+    document.getElementById('stat-nocrack').textContent = fmt(lbl.no_crack || 0);
+    document.getElementById('stat-corr').textContent    = fmt(d.corrections || 0);
+  }
+
+  async function loadSources() {
+    renderSidebar(await (await fetch('/api/sources?mode=' + S.mode)).json());
+  }
+
+  async function loadImages() {
+    var f = S.filters;
+    var p = new URLSearchParams({ mode: S.mode, page: S.page, per_page: S.perPage });
+    if (f.source)     p.set('source', f.source);
+    if (f.split)      p.set('split', f.split);
+    if (f.label)      p.set('label', f.label);
+    if (f.annotation) p.set('annotation', f.annotation);
+    if (f.labelKey && f.labelVal) { p.set('label_key', f.labelKey); p.set('label_val', f.labelVal); }
+    var d = await (await fetch('/api/images?' + p)).json();
+    S.images = d.items; S.total = d.total; S.pages = d.pages; S.page = d.page;
+    S.selected.clear(); S.lastClickIdx = null; S.focusIdx = null;
+    renderGrid(); renderPagination(); renderBatchBar();
+  }
+
+  function setPerPage(n) {
+    S.perPage = n;
+    document.querySelectorAll('.perpage-pill').forEach(function(b) {
+      b.classList.toggle('active', parseInt(b.dataset.value) === n);
+    });
+    S.page = 1; loadImages();
+  }
+
+  function setCatFilter(key, val) {
+    S.filters.labelKey = key; S.filters.labelVal = val;
+    document.querySelectorAll('.cat-pill').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.key === key && b.dataset.val === val);
+    });
+    S.page = 1; loadImages();
+  }
+
+  function renderCatFilters() {
+    var bar = document.getElementById('cat-filterbar');
+    if (!bar) return;
+    var cats = SCHEMA.categories;
+    if (!cats || !cats.length) { bar.style.display = 'none'; return; }
+    bar.style.display = '';
+    var html = '';
+    for (var i = 0; i < cats.length; i++) {
+      var cat = cats[i];
+      var activeKey = S.filters.labelKey, activeVal = S.filters.labelVal;
+      html += '<div class="filter-group">'
+        + '<span class="filter-label">' + esc(cat.label) + ':</span>'
+        + '<div class="pill-group">'
+        + '<button class="cat-pill pill' + (!activeKey || activeKey !== cat.key ? ' active' : '') + '" data-key="' + esc(cat.key) + '" data-val="" onclick="setCatFilter(\'\',\'\')">All</button>'
+        + '<button class="cat-pill pill' + (activeKey===cat.key && activeVal==='__unset__' ? ' active' : '') + '" data-key="' + esc(cat.key) + '" data-val="__unset__"'
+        + ' style="border-color:#64748b55;color:var(--text-muted)"'
+        + ' onclick="setCatFilter(\'' + esc(cat.key) + '\',\'__unset__\')" title="Images where ' + esc(cat.label) + ' has not been set">Not set</button>';
+      for (var vi = 0; vi < cat.values.length; vi++) {
+        var v = cat.values[vi];
+        var isActive = activeKey === cat.key && String(activeVal) === String(v.value);
+        var col = v.color ? 'border-color:' + v.color + '55' : '';
+        html += '<button class="cat-pill pill' + (isActive ? ' active' : '') + '" data-key="' + esc(cat.key) + '" data-val="' + esc(String(v.value)) + '"'
+          + ' style="' + col + '"'
+          + ' onclick="setCatFilter(\'' + esc(cat.key) + '\',\'' + esc(String(v.value)) + '\')">'
+          + esc(v.label) + '</button>';
+      }
+      html += '</div></div>';
+      if (i < cats.length - 1) html += '<div class="filter-sep"></div>';
+    }
+    bar.innerHTML = html;
+  }
+
+  // ── Mode ─────────────────────────────────────────────────────────────────────
+  function setMode(mode) {
+    S.mode = mode; S.page = 1; S.filters.source = '';
+    ['labeled','unlabeled','defect','survey'].forEach(function(m) {
+      document.getElementById('mode-'+m).classList.toggle('active', m===mode);
+    });
+    ['split-pills', 'annotation-pills'].forEach(function(pid) {
+      document.querySelectorAll('#'+pid+' .pill').forEach(function(p) { p.classList.remove('active'); });
+      document.querySelector('#'+pid+' .pill[data-value=""]').classList.add('active');
+    });
+    S.filters.split = ''; S.filters.label = ''; S.filters.labelKey = ''; S.filters.labelVal = ''; S.filters.annotation = '';
+    document.querySelectorAll('.cat-pill').forEach(function(b) { b.classList.toggle('active', b.dataset.val === ''); });
+    document.getElementById('btn-manage-datasets').style.display = mode === 'survey' ? '' : 'none';
+    loadSources(); loadImages();
+    if (SC.open) { SC.points = []; loadScatterData(); }
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────────────
+  function renderSidebar(sources) {
+    var el = document.getElementById('sidebar');
+    var active = S.filters.source;
+    var html = '<div class="sidebar-item ' + (active===''?'active':'') + '" onclick="setSource(\'\')">'
+      + '<span class="sidebar-name">All sources</span></div>';
+    for (var i = 0; i < sources.length; i++) {
+      var s = sources[i];
+      var a = active===s.name ? 'active' : '';
+      var delBtn = S.mode === 'survey'
+        ? '<button class="btn-sm" style="padding:1px 6px;font-size:0.68rem;margin-left:4px;flex-shrink:0" onclick="event.stopPropagation();confirmDeleteDataset(' + JSON.stringify(s.name).replace(/"/g,'&quot;') + ',' + s.total + ')" title="Delete entire dataset">Del</button>'
+        : '';
+      html += '<div class="sidebar-item ' + a + '" style="display:flex;align-items:center" onclick="setSource(' + JSON.stringify(s.name).replace(/"/g,'&quot;') + ')">'
+        + '<span class="sidebar-name" title="' + esc(s.name) + '" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">' + esc(s.name) + '</span>'
+        + '<span class="sidebar-count">' + fmt(s.total) + '</span>' + delBtn + '</div>';
+    }
+    el.innerHTML = html;
+  }
+
+  function _labelInfo(effective_label) {
+    if (effective_label === 1) return ['crack',    'Crack'];
+    if (effective_label === 0) return ['no-crack', 'No Crack'];
+    return ['unknown', 'Unknown'];
+  }
+
+  function _cardMlabelsHtml(img) {
+    if (!SCHEMA.categories.length || !img.labels) return '';
+    var dots = [];
+    for (var ci = 0; ci < SCHEMA.categories.length; ci++) {
+      var cat = SCHEMA.categories[ci];
+      var val = img.labels[cat.key];
+      if (val === undefined || val === null) continue;
+      var v = null;
+      for (var vi = 0; vi < cat.values.length; vi++) {
+        if (cat.values[vi].value === val) { v = cat.values[vi]; break; }
+      }
+      if (!v) continue;
+      dots.push('<span class="mlabel-dot" style="background:' + (v.color||'#94a3b8') + '" title="' + esc(cat.label) + ': ' + esc(v.label) + '"></span>');
+    }
+    return dots.length ? '<div class="card-mlabels">' + dots.join('') + '</div>' : '';
+  }
+
+  // ── Render grid ───────────────────────────────────────────────────────────────
+  function renderGrid() {
+    var grid = document.getElementById('image-grid');
+    if (!S.images.length) {
+      grid.innerHTML = '<div class="empty-state">No images match the current filters</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < S.images.length; i++) {
+      var img = S.images[i];
+      var sel = S.selected.has(img.id) ? 'selected' : '';
+      var foc = S.focusIdx === i ? 'focused' : '';
+      var li  = _labelInfo(img.effective_label);
+      var corr = img.corrected_label !== null || (img.labels && Object.keys(img.labels).length > 0);
+      html += '<div class="img-card ' + sel + ' ' + foc + '" data-id="' + img.id + '" data-idx="' + i + '"'
+        + ' onclick="handleClick(event,' + i + ')" oncontextmenu="handleContextMenu(event,' + i + ')">'
+        + '<div class="card-thumb-wrap">'
+        + '<img class="thumb" src="/api/image?path=' + encodeURIComponent(img.path) + '" loading="lazy" alt=""'
+        + ' onerror="this.onerror=null;this.classList.add(\'broken\')">'
+        + '</div>'
+        + '<div class="card-info">'
+        + '<span class="card-source" title="' + esc(img.source) + '">' + esc(img.source) + '</span>'
+        + (corr ? '<span class="corr-star" title="Manually corrected">*</span>' : '')
+        + '<span class="badge ' + li[0] + '">' + li[1] + '</span>'
+        + '</div>'
+        + _cardMlabelsHtml(img)
+        + '</div>';
+    }
+    grid.innerHTML = html;
+    if (S.showGridAnnotations || S.filters.annotation === 'annotated') _applyGridAnnotations();
+  }
+
+  function renderPagination() {
+    document.getElementById('page-info').textContent = 'Page ' + S.page + ' / ' + S.pages + '  (' + fmt(S.total) + ' images)';
+    document.getElementById('btn-prev').disabled = S.page <= 1;
+    document.getElementById('btn-next').disabled = S.page >= S.pages;
+  }
+
+  // ── Active field and batch bar ────────────────────────────────────────────────
+  function setActiveField(i) {
+    S.activeField = i;
+    renderBatchBar();
+    updateModalActiveCat();
+  }
+
+  function renderBatchBar() {
+    var hasSel   = S.selected.size > 0;
+    var hasFocus = S.focusIdx !== null && S.modalIdx === null;
+    var visible  = hasSel || hasFocus;
+    document.getElementById('batch-bar').classList.toggle('visible', visible);
+    if (!visible) return;
+
+    document.getElementById('batch-count').textContent = hasSel ? (S.selected.size + ' selected') : 'Focused';
+
+    var cats = SCHEMA.categories;
+    var tabsHtml = '';
+    for (var i = 0; i < cats.length; i++) {
+      tabsHtml += '<button class="field-tab ' + (i===S.activeField?'active':'') + '" onclick="setActiveField(' + i + ')">' + esc(cats[i].label) + '</button>';
+    }
+    document.getElementById('batch-field-tabs').innerHTML = tabsHtml;
+    document.getElementById('batch-sep2').style.display = cats.length ? '' : 'none';
+
+    var cat = cats[S.activeField];
+    var valHtml = '';
+    if (cat) {
+      for (var vi = 0; vi < cat.values.length; vi++) {
+        var v = cat.values[vi];
+        var k = v.shortcut ? '<span class="key-hint">' + v.shortcut.toUpperCase() + '/' + (vi+1) + '</span>' : '<span class="key-hint">' + (vi+1) + '</span>';
+        valHtml += '<button class="btn-val" style="' + (v.color?'border-color:'+v.color+'55':'') + '"'
+          + ' onclick="applyLabelAction(\'' + cat.key + '\',' + JSON.stringify(v.value).replace(/"/g,'&quot;') + ')">'
+          + k + esc(v.label) + '</button>';
+      }
+      valHtml += '<button class="btn-val revert-val" onclick="applyRevertField(\'' + cat.key + '\')">Revert</button>';
+    } else if (!cats.length) {
+      valHtml = '<button class="btn-val" onclick="applyLabelAction(\'has_crack\',1)"><span class="key-hint">C</span>Crack</button>'
+              + '<button class="btn-val" onclick="applyLabelAction(\'has_crack\',0)"><span class="key-hint">N</span>No Crack</button>';
+    }
+    document.getElementById('batch-values').innerHTML = valHtml;
+
+    var presHtml = '';
+    for (var pi = 0; pi < 4; pi++) {
+      var pr = S.presets[pi];
+      if (pr) presHtml += '<button class="btn-preset" onclick="applyPreset(' + pi + ')" title="' + esc(presetTitle(pr)) + '">F' + (pi+1) + ' ' + esc(pr.name) + '</button>';
+      else    presHtml += '<button class="btn-preset empty" disabled>F' + (pi+1) + '</button>';
+    }
+    document.getElementById('batch-presets').innerHTML = presHtml;
+
+    var surveyActions = document.getElementById('batch-survey-actions');
+    surveyActions.style.display = (S.mode === 'survey' && hasSel) ? 'flex' : 'none';
+  }
+
+  // ── Card interaction ──────────────────────────────────────────────────────────
+  function handleClick(e, idx) {
+    hideCtxMenu();
+    if (e.shiftKey && S.lastClickIdx !== null) {
+      var a = Math.min(S.lastClickIdx,idx), b = Math.max(S.lastClickIdx,idx);
+      for (var i=a; i<=b; i++) S.selected.add(S.images[i].id);
+      renderGrid(); renderBatchBar();
+    } else if (e.ctrlKey || e.metaKey) {
+      var id = S.images[idx].id;
+      if (S.selected.has(id)) S.selected.delete(id); else S.selected.add(id);
+      S.lastClickIdx = idx; S.focusIdx = idx;
+      renderGrid(); renderBatchBar();
+    } else {
+      S.lastClickIdx = idx; S.focusIdx = idx;
+      openModal(idx);
+    }
+  }
+
+  function handleContextMenu(e, idx) {
+    e.preventDefault();
+    setFocus(idx);
+    _showCtxMenu(e.clientX, e.clientY, idx);
+  }
+
+  function _showCtxMenu(x, y, idx) {
+    var menu = document.getElementById('ctx-menu');
+    var html = '<div style="padding:4px 8px 6px;font-size:0.68rem;color:var(--text-muted);border-bottom:1px solid var(--border);margin-bottom:3px">Save as preset</div>';
+    for (var pi = 0; pi < 4; pi++) {
+      var pr = S.presets[pi];
+      html += '<div style="padding:4px 10px;cursor:pointer;font-size:0.78rem;border-radius:3px;white-space:nowrap"'
+        + ' onmouseover="this.style.background=\'var(--surface2)\'" onmouseout="this.style.background=\'\'"'
+        + ' onclick="savePreset(' + pi + ',' + idx + ');hideCtxMenu()">'
+        + 'F' + (pi+1) + (pr ? ' (' + esc(pr.name) + ')' : '') + '</div>';
+    }
+    menu.innerHTML = html; menu.style.display = 'block';
+    menu.style.left = Math.min(x, window.innerWidth  - 180) + 'px';
+    menu.style.top  = Math.min(y, window.innerHeight - 160) + 'px';
+  }
+
+  function hideCtxMenu() { document.getElementById('ctx-menu').style.display = 'none'; }
+
+  // ── Grid focus ────────────────────────────────────────────────────────────────
+  function setFocus(idx) {
+    S.focusIdx = idx;
+    renderGrid(); renderBatchBar();
+    var card = document.querySelector('[data-idx="' + idx + '"]');
+    if (card) card.scrollIntoView({ block: 'nearest' });
+  }
+
+  function clearFocus() { S.focusIdx = null; renderGrid(); renderBatchBar(); }
+
+  function moveFocus(delta) {
+    if (!S.images.length) return;
+    var cur = S.focusIdx !== null ? S.focusIdx : -1;
+    setFocus(Math.max(0, Math.min(S.images.length - 1, cur + delta)));
+  }
+
+  // ── Modal ─────────────────────────────────────────────────────────────────────
+  function openModal(idx) {
+    S.modalIdx = idx;
+    var img = S.images[idx];
+    var modalImg = document.getElementById('modal-img');
+    modalImg.style.opacity = '1';
+    modalImg.onerror = function() { modalImg.style.opacity = '0.4'; modalImg.alt = 'Failed to load'; };
+    modalImg.src = '/api/image?path=' + encodeURIComponent(img.path);
+    document.getElementById('modal-path').textContent = img.path;
+    document.getElementById('modal-meta').textContent = img.source + '  *  ' + img.split;
+    _refreshModalLabels(img);
+    renderModalCategories(img);
+    renderModalPresets();
+    document.getElementById('btn-modal-prev').disabled = idx <= 0;
+    document.getElementById('btn-modal-next').disabled = idx >= S.images.length - 1;
+    document.getElementById('modal-overlay').classList.add('open');
+    document.getElementById('batch-bar').classList.remove('visible');
+  }
+
+  function _refreshModalLabels(img) {
+    var li = _labelInfo(img.original_label);
+    var hasCorr = img.corrected_label !== null || (img.labels && Object.keys(img.labels).length > 0);
+    var html = '<span class="lbl">Original:</span><span class="badge ' + li[0] + '">' + li[1] + '</span>';
+    if (hasCorr) {
+      var le = _labelInfo(img.effective_label);
+      html += '<span class="lbl" style="margin-left:6px">Corrected:</span><span class="badge ' + le[0] + '">' + le[1] + ' *</span>';
+    }
+    document.getElementById('modal-label-row').innerHTML = html;
+  }
+
+  function renderModalCategories(img) {
+    var cats = SCHEMA.categories;
+    if (!cats.length) {
+      document.getElementById('modal-categories').innerHTML =
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+        + '<button class="btn-modal-val" style="background:var(--crack);border-color:var(--crack);color:#fff" onclick="doLabelCat(\'has_crack\',1)">Crack (C)</button>'
+        + '<button class="btn-modal-val" style="background:var(--no-crack);border-color:var(--no-crack);color:#fff" onclick="doLabelCat(\'has_crack\',0)">No Crack (N)</button>'
+        + '</div>';
+      return;
+    }
+    var html = '';
+    for (var fi = 0; fi < cats.length; fi++) {
+      var cat = cats[fi];
+      var isActive = fi === S.activeField;
+      var curVal = img.labels ? img.labels[cat.key] : undefined;
+      html += '<div class="label-cat-row ' + (isActive?'active-cat':'') + '" data-field="' + fi + '" onclick="setActiveField(' + fi + ')">'
+        + '<span class="label-cat-name">' + esc(cat.label) + '</span>'
+        + '<div class="label-cat-btns">';
+      for (var vi = 0; vi < cat.values.length; vi++) {
+        var v = cat.values[vi];
+        var active = curVal === v.value;
+        var kh = v.shortcut
+          ? '<span class="modal-key-hint">' + v.shortcut.toUpperCase() + '/' + (vi+1) + '</span>'
+          : '<span class="modal-key-hint">' + (vi+1) + '</span>';
+        html += '<button class="btn-modal-val ' + (active?'active':'') + '"'
+          + ' style="' + (active&&v.color?'background:'+v.color+';border-color:'+v.color:'') + '"'
+          + ' onclick="event.stopPropagation();setActiveField(' + fi + ');doLabelCat(\'' + cat.key + '\',' + JSON.stringify(v.value).replace(/"/g,'&quot;') + ')">'
+          + kh + esc(v.label) + '</button>';
+      }
+      html += '<button class="btn-modal-val revert-val" onclick="event.stopPropagation();doRevertField(\'' + cat.key + '\')">Revert</button>';
+      html += '</div></div>';
+    }
+    document.getElementById('modal-categories').innerHTML = html;
+  }
+
+  function updateModalActiveCat() {
+    document.querySelectorAll('.label-cat-row').forEach(function(row, i) {
+      row.classList.toggle('active-cat', i === S.activeField);
+    });
+  }
+
+  function renderModalPresets() {
+    var html = '<span class="modal-preset-lbl">Presets:</span>';
+    for (var pi = 0; pi < 4; pi++) {
+      var pr = S.presets[pi];
+      if (pr) html += '<button class="btn-modal-preset" onclick="applyPreset(' + pi + ')" title="' + esc(presetTitle(pr)) + '">F' + (pi+1) + ' ' + esc(pr.name) + '</button>';
+      else    html += '<button class="btn-modal-preset empty">F' + (pi+1) + '</button>';
+    }
+    html += '<button class="btn-modal-preset define" onclick="promptSavePreset()">+ Save</button>';
+    document.getElementById('modal-preset-row').innerHTML = html;
+  }
+
+  function closeModal() {
+    document.getElementById('modal-overlay').classList.remove('open');
+    var wasIdx = S.modalIdx;
+    S.modalIdx = null;
+    // If a category filter is active, the image we just labeled may no longer match —
+    // re-evaluate now that the modal protection is lifted.
+    if (wasIdx !== null && S.images[wasIdx] && !_imageMatchesFilter(S.images[wasIdx])) {
+      var img = S.images[wasIdx];
+      var card = document.querySelector('[data-id="' + img.id + '"]');
+      if (card) card.remove();
+      S.images.splice(wasIdx, 1);
+      S.selected.delete(img.id);
+      if (S.images.length === 0 && (S.filters.labelKey || S.filters.label !== '')) {
+        loadImages();
+        return;
+      }
+    }
+    renderBatchBar();
+  }
+
+  function modalNav(delta) {
+    if (S.modalIdx === null) return;
+    var next = S.modalIdx + delta;
+    if (next < 0 || next >= S.images.length) return;
+    S.focusIdx = next;
+    openModal(next);
+  }
+
+  // ── Labeling (modal) ──────────────────────────────────────────────────────────
+  function _allCatsSet(img) {
+    if (!SCHEMA.categories.length) return img.corrected_label !== null;
+    return SCHEMA.categories.every(function(cat) {
+      return img.labels && img.labels[cat.key] !== undefined;
+    });
+  }
+
+  async function doLabelCat(key, value) {
+    if (S.modalIdx === null) return;
+    var img = S.images[S.modalIdx];
+    await applyLabelMulti(img.id, key, value);
+    // In multi-category mode, only advance once every category has a value
+    if (!document.getElementById('auto-advance').checked) return;
+    var updatedImg = S.modalIdx !== null ? S.images[S.modalIdx] : null;
+    if (!updatedImg) return;
+    if (SCHEMA.categories.length <= 1 || _allCatsSet(updatedImg)) modalNav(1);
+  }
+
+  async function doRevertField(key) {
+    if (S.modalIdx === null) return;
+    await applyLabelMulti(S.images[S.modalIdx].id, key, null);
+  }
+
+  async function doRevertAll() {
+    if (S.modalIdx === null) return;
+    var img = S.images[S.modalIdx];
+    var r = await fetch('/api/label', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ id: img.id, labels: {}, revert_all: true }),
+    });
+    if (!r.ok) return;
+    var data = await r.json();
+    _updateImgState(img.id, data);
+    _refreshModalLabels(S.images[S.modalIdx]);
+    renderModalCategories(S.images[S.modalIdx]);
+    showToast('All labels reverted', 'toast-revert');
+    loadStats();
+  }
+
+  // ── Label action dispatcher ───────────────────────────────────────────────────
+  async function applyLabelAction(key, value) {
+    if (S.selected.size > 0) {
+      await batchLabelMulti(key, value);
+    } else if (S.modalIdx !== null) {
+      await doLabelCat(key, value);
+    } else if (S.focusIdx !== null) {
+      await applyLabelMulti(S.images[S.focusIdx].id, key, value);
+      // Only auto-advance when all categories are set (or single-category schema)
+      var img = S.images[S.focusIdx];
+      if (SCHEMA.categories.length <= 1 || _allCatsSet(img)) moveFocus(1);
+    }
+  }
+
+  async function applyRevertField(key) {
+    if (S.selected.size > 0) {
+      var ids = Array.from(S.selected);
+      var r = await fetch('/api/labels/batch', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ ids: ids, labels: { [key]: null } }),
+      });
+      if (!r.ok) return;
+      await loadImages(); await loadStats();
+      showToast('Reverted ' + key + ' for ' + ids.length, 'toast-revert');
+    } else if (S.modalIdx !== null) {
+      await doRevertField(key);
+    } else if (S.focusIdx !== null) {
+      await applyLabelMulti(S.images[S.focusIdx].id, key, null);
+    }
+  }
+
+  // ── Core API ──────────────────────────────────────────────────────────────────
+  async function applyLabelMulti(id, key, value) {
+    var r = await fetch('/api/label', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ id: id, labels: { [key]: value } }),
+    });
+    if (!r.ok) { showToast('Error saving label', ''); return null; }
+    var data = await r.json();
+    _updateImgState(id, data);
+    var fidx = S.images.findIndex(function(img) { return img.id === id; });
+    if (S.modalIdx !== null && S.modalIdx === fidx) {
+      _refreshModalLabels(S.images[fidx]);
+      renderModalCategories(S.images[fidx]);
+    }
+    var cat = SCHEMA.categories.find(function(c) { return c.key === key; });
+    var v   = cat ? cat.values.find(function(v) { return v.value === value; }) : null;
+    var msg = value === null ? ('Reverted ' + (cat ? cat.label : key)) : (cat ? cat.label + ': ' + (v ? v.label : value) : String(value));
+    showToast(msg, value === null ? 'toast-revert' : '');
+    loadStats();
+    return data;
+  }
+
+  async function batchLabelMulti(key, value) {
+    var ids = Array.from(S.selected);
+    if (!ids.length) return;
+    var r = await fetch('/api/labels/batch', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ids: ids, labels: { [key]: value } }),
+    });
+    if (!r.ok) return;
+    var d = await r.json();
+    var cat = SCHEMA.categories.find(function(c) { return c.key === key; });
+    var v   = cat ? cat.values.find(function(v) { return v.value === value; }) : null;
+    showToast(d.updated + 'x ' + (cat?cat.label:key) + ': ' + (v?v.label:value), 'toast-batch');
+    await loadImages(); await loadStats(); await loadSources();
+  }
+
+  function _imageMatchesFilter(img) {
+    var lf = S.filters.label;
+    if (lf === 'crack')    { if (img.effective_label !== 1)  return false; }
+    else if (lf === 'no_crack') { if (img.effective_label !== 0)  return false; }
+    else if (lf === 'unknown')  { if (img.effective_label !== -1) return false; }
+    var lk = S.filters.labelKey, lv = S.filters.labelVal;
+    if (lk && lv) {
+      var cur = img.labels ? img.labels[lk] : undefined;
+      if (lv === '__unset__') { if (cur !== undefined) return false; }
+      else { if (String(cur) !== String(lv)) return false; }
+    }
+    return true;
+  }
+
+  function _updateImgState(id, data) {
+    var idx = S.images.findIndex(function(img) { return img.id === id; });
+    if (idx === -1) return;
+    var img = S.images[idx];
+    img.labels = data.labels; img.corrected_label = data.corrected_label; img.effective_label = data.effective_label;
+
+    // Don't splice while the modal is open on this image — let user finish all categories first
+    if (!_imageMatchesFilter(img) && S.modalIdx !== idx) {
+      var card = document.querySelector('[data-id="' + id + '"]');
+      if (card) card.remove();
+      S.images.splice(idx, 1);
+      S.selected.delete(id);
+      // Adjust modal index
+      if (S.modalIdx !== null) {
+        if (S.modalIdx === idx) {
+          if (S.images.length === 0) { closeModal(); return; }
+          S.modalIdx = Math.min(idx, S.images.length - 1);
+          openModal(S.modalIdx);
+        } else if (S.modalIdx > idx) {
+          S.modalIdx--;
+        }
+      }
+      // Adjust grid focus
+      if (S.focusIdx !== null) {
+        if (S.focusIdx >= S.images.length) S.focusIdx = S.images.length - 1;
+        if (S.focusIdx < 0) S.focusIdx = null;
+      }
+      // If page is now empty and a category filter is active, reload to fill from server
+      if (S.images.length === 0 && (S.filters.labelKey || S.filters.label !== '')) {
+        loadImages();
+        return;
+      }
+      renderBatchBar();
+      return;
+    }
+
+    var card = document.querySelector('[data-id="' + id + '"]');
+    if (!card) return;
+    var li = _labelInfo(img.effective_label);
+    var corr = img.corrected_label !== null || Object.keys(img.labels||{}).length > 0;
+    var info = card.querySelector('.card-info');
+    var star = info.querySelector('.corr-star');
+    if (corr && !star) {
+      var s = document.createElement('span'); s.className='corr-star'; s.title='Manually corrected'; s.textContent='*';
+      info.insertBefore(s, info.querySelector('.badge'));
+    } else if (!corr && star) { star.remove(); }
+    var badge = info.querySelector('.badge');
+    badge.className = 'badge ' + li[0]; badge.textContent = li[1];
+    var oldMl = card.querySelector('.card-mlabels');
+    var newMlHtml = _cardMlabelsHtml(img);
+    if (newMlHtml) {
+      if (!oldMl) card.insertAdjacentHTML('beforeend', newMlHtml);
+      else oldMl.outerHTML = newMlHtml;
+    } else if (oldMl) { oldMl.remove(); }
+  }
+
+  // ── Presets ───────────────────────────────────────────────────────────────────
+  function presetTitle(pr) {
+    return Object.entries(pr.labels).map(function(e) {
+      var cat = SCHEMA.categories.find(function(c) { return c.key===e[0]; });
+      var vv  = cat ? cat.values.find(function(v) { return v.value===e[1]; }) : null;
+      return vv ? vv.label : String(e[1]);
+    }).join(', ');
+  }
+
+  function savePreset(slot, imgIdx) {
+    var img = S.images[imgIdx];
+    if (!img.labels || !Object.keys(img.labels).length) { showToast('No labels to save', 'toast-revert'); return; }
+    var name = presetTitle({ labels: img.labels });
+    S.presets[slot] = { name: name, labels: Object.assign({}, img.labels) };
+    localStorage.setItem('tarmac-presets', JSON.stringify(S.presets));
+    showToast('Saved F' + (slot+1) + ': ' + name);
+    renderBatchBar();
+    if (S.modalIdx !== null) renderModalPresets();
+  }
+
+  function promptSavePreset() {
+    if (S.modalIdx === null) return;
+    var footer = document.querySelector('.modal-footer');
+    var rect = footer.getBoundingClientRect();
+    var html = '<div style="padding:4px 8px 6px;font-size:0.68rem;color:var(--text-muted);border-bottom:1px solid var(--border);margin-bottom:3px">Save preset</div>';
+    for (var pi = 0; pi < 4; pi++) {
+      var pr = S.presets[pi];
+      html += '<div style="padding:4px 10px;cursor:pointer;font-size:0.78rem;border-radius:3px;white-space:nowrap"'
+        + ' onmouseover="this.style.background=\'var(--surface2)\'" onmouseout="this.style.background=\'\'"'
+        + ' onclick="savePreset(' + pi + ',' + S.modalIdx + ');hideCtxMenu()">F' + (pi+1) + (pr?' ('+esc(pr.name)+')':'') + '</div>';
+    }
+    var menu = document.getElementById('ctx-menu');
+    menu.innerHTML = html; menu.style.display = 'block';
+    menu.style.left = (rect.left + 60) + 'px';
+    menu.style.top  = Math.max(0, rect.top - 140) + 'px';
+  }
+
+  async function applyPreset(slot) {
+    var pr = S.presets[slot];
+    if (!pr) return;
+    var entries = Object.entries(pr.labels);
+    if (S.selected.size > 0) {
+      for (var i = 0; i < entries.length; i++) await batchLabelMulti(entries[i][0], entries[i][1]);
+    } else if (S.modalIdx !== null) {
+      for (var i = 0; i < entries.length; i++) await applyLabelMulti(S.images[S.modalIdx].id, entries[i][0], entries[i][1]);
+      if (document.getElementById('auto-advance').checked) modalNav(1);
+    } else if (S.focusIdx !== null) {
+      for (var i = 0; i < entries.length; i++) await applyLabelMulti(S.images[S.focusIdx].id, entries[i][0], entries[i][1]);
+      moveFocus(1);
+    }
+    showToast('Applied F' + (slot+1) + ': ' + pr.name);
+  }
+
+  // ── Selection ─────────────────────────────────────────────────────────────────
+  function selectPage() { S.images.forEach(function(img) { S.selected.add(img.id); }); renderGrid(); renderBatchBar(); }
+  function clearSelection() { S.selected.clear(); renderGrid(); renderBatchBar(); }
+
+  // ── Filters ───────────────────────────────────────────────────────────────────
+  function setPill(btn, type) {
+    btn.closest('.pill-group').querySelectorAll('.pill').forEach(function(p) { p.classList.remove('active'); });
+    btn.classList.add('active');
+    S.filters[type] = btn.dataset.value;
+    S.page = 1; loadImages();
+  }
+  function setSource(name) {
+    S.filters.source = name; S.page = 1; loadImages(); loadSources();
+    if (SC.open) { SC.points = []; loadScatterData(); }
+  }
+  function goToPage(p) { S.page = p; loadImages(); }
+
+  // ── Keyboard ──────────────────────────────────────────────────────────────────
+  function setupKeyboard() {
+    document.addEventListener('keydown', function(e) {
+      var tag = e.target.tagName;
+      if (tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT') return;
+      if (document.getElementById('ctx-menu').style.display!=='none' && e.key!=='Escape') return;
+
+      if (document.getElementById('help-overlay').classList.contains('open')) {
+        if (e.key==='Escape') { e.preventDefault(); hideHelp(); }
+        return;
+      }
+      if (document.getElementById('datasets-overlay').classList.contains('open')) {
+        if (e.key==='Escape') { e.preventDefault(); hideDatasetManager(); }
+        return;
+      }
+      if (document.getElementById('move-dataset-overlay').classList.contains('open')) {
+        if (e.key==='Escape') { e.preventDefault(); hideMoveDataset(); }
+        return;
+      }
+
+      var modalOpen = S.modalIdx !== null;
+
+      if (e.key==='Escape') {
+        e.preventDefault(); hideCtxMenu();
+        if (modalOpen) closeModal();
+        return;
+      }
+
+      // Tab: cycle active field
+      if (e.key==='Tab') {
+        var nCats = SCHEMA.categories.length;
+        if ((modalOpen || S.focusIdx !== null) && nCats > 0) {
+          e.preventDefault();
+          S.activeField = (S.activeField + (e.shiftKey ? nCats-1 : 1)) % nCats;
+          renderBatchBar(); if (modalOpen) updateModalActiveCat();
+        }
+        return;
+      }
+
+      // Shift+U: revert all
+      if (e.key==='U' && e.shiftKey) {
+        e.preventDefault();
+        if (modalOpen) doRevertAll();
+        return;
+      }
+
+      // Navigation
+      if (modalOpen) {
+        if (e.key==='ArrowRight'||e.key==='l') { e.preventDefault(); modalNav(1);  return; }
+        if (e.key==='ArrowLeft' ||e.key==='h') { e.preventDefault(); modalNav(-1); return; }
+      } else {
+        var cols = gridCols();
+        if (e.key==='ArrowRight'||e.key==='l') { e.preventDefault(); moveFocus(1);     return; }
+        if (e.key==='ArrowLeft' ||e.key==='h') { e.preventDefault(); moveFocus(-1);    return; }
+        if (e.key==='ArrowDown' ||e.key==='j') { e.preventDefault(); moveFocus(cols);  return; }
+        if (e.key==='ArrowUp'   ||e.key==='k') { e.preventDefault(); moveFocus(-cols); return; }
+        if (e.key==='Enter'||e.key===' ') {
+          e.preventDefault(); if (S.focusIdx!==null) openModal(S.focusIdx); return;
+        }
+      }
+
+      // F1-F4 presets
+      if (/^F[1-4]$/.test(e.key)) { e.preventDefault(); applyPreset(parseInt(e.key[1])-1); return; }
+
+      var hasTarget = modalOpen || S.focusIdx!==null || S.selected.size>0;
+      if (!hasTarget) return;
+
+      // Number keys 1-9
+      if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        var vi = parseInt(e.key) - 1;
+        var cat = SCHEMA.categories[S.activeField];
+        if (cat && vi < cat.values.length) { e.preventDefault(); applyLabelAction(cat.key, cat.values[vi].value); }
+        return;
+      }
+
+      // Legacy 0 = no crack when no schema
+      if (e.key==='0' && !SCHEMA.categories.length) {
+        e.preventDefault(); applyLabelAction('has_crack', 0); return;
+      }
+
+      // u: revert active field
+      if (e.key==='u' && !e.shiftKey) {
+        e.preventDefault();
+        var rcat = SCHEMA.categories[S.activeField];
+        if (rcat) applyRevertField(rcat.key);
+        else if (!SCHEMA.categories.length && modalOpen) doRevertAll();
+        return;
+      }
+
+      // Letter shortcuts from schema
+      for (var fi = 0; fi < SCHEMA.categories.length; fi++) {
+        var scat = SCHEMA.categories[fi];
+        for (var svi = 0; svi < scat.values.length; svi++) {
+          var sv = scat.values[svi];
+          if (sv.shortcut && e.key.toLowerCase()===sv.shortcut.toLowerCase()) {
+            e.preventDefault();
+            if (S.activeField !== fi) { S.activeField = fi; renderBatchBar(); if (modalOpen) updateModalActiveCat(); }
+            applyLabelAction(scat.key, sv.value);
+            return;
+          }
+        }
+      }
+
+      // Fallback no-schema
+      if (!SCHEMA.categories.length) {
+        if (e.key==='c'||e.key==='1') { e.preventDefault(); applyLabelAction('has_crack',1); }
+        if (e.key==='n')              { e.preventDefault(); applyLabelAction('has_crack',0); }
+      }
+    });
+
+    document.addEventListener('click', function(e) {
+      if (!document.getElementById('ctx-menu').contains(e.target)) hideCtxMenu();
+    });
+  }
+
+  // ── Scatter ───────────────────────────────────────────────────────────────────
+  function toggleScatter() {
+    SC.open = !SC.open;
+    var body=document.getElementById('scatter-body');
+    var icon=document.getElementById('scatter-toggle-icon');
+    var hdr=document.querySelector('.scatter-header span:first-child');
+    body.classList.toggle('open', SC.open);
+    icon.textContent = SC.open ? '&#9650;' : '&#9660;';
+    hdr.textContent = (SC.open ? '&#9662; ' : '&#9658; ') + 'Semantic Scatter';
+    if (SC.open && !SC.points.length) loadScatterData();
+    else if (SC.open) { resizeScatterCanvas(); renderScatter(); }
+  }
+
+  async function loadScatterData() {
+    document.getElementById('scatter-status').textContent = 'loading...';
+    try {
+      var p = new URLSearchParams({ mode: S.mode });
+      if (S.filters.source) p.set('source', S.filters.source);
+      var d = await (await fetch('/api/scatter?' + p.toString())).json();
+      if (!d.available || !d.points.length) {
+        document.getElementById('scatter-status').textContent = 'not available — run: uv run tarmac build-label-scatter'; return;
+      }
+      SC.points = d.points;
+      var xs=SC.points.map(function(p){return p.x;}), ys=SC.points.map(function(p){return p.y;});
+      SC.xBase=[Math.min.apply(null,xs),Math.max.apply(null,xs)];
+      SC.yBase=[Math.min.apply(null,ys),Math.max.apply(null,ys)];
+      SC.xRange=SC.xBase.slice(); SC.yRange=SC.yBase.slice();
+      var lbl = d.total.toLocaleString() + ' pts (scroll=zoom, right-drag=pan)';
+      if (d.survey_fallback) {
+        lbl += ' — showing all modes (re-run build-label-scatter to include survey frames)';
+      }
+      document.getElementById('scatter-status').textContent = lbl;
+      resizeScatterCanvas(); renderScatter();
+    } catch(e) { document.getElementById('scatter-status').textContent = 'error loading scatter data'; }
+  }
+
+  function resizeScatterCanvas() {
+    var canvas=document.getElementById('scatter-canvas'), dpr=window.devicePixelRatio||1;
+    canvas.width=canvas.clientWidth*dpr; canvas.height=canvas.clientHeight*dpr;
+  }
+
+  function resetScatterZoom() {
+    SC.xRange=SC.xBase.slice(); SC.yRange=SC.yBase.slice(); renderScatter();
+  }
+
+  function _ptToCanvas(p, canvas) {
+    var dpr=window.devicePixelRatio||1, pad=16*dpr;
+    var x0=SC.xRange[0],x1=SC.xRange[1],y0=SC.yRange[0],y1=SC.yRange[1];
+    var w=canvas.width-2*pad, h=canvas.height-2*pad;
+    return [pad+((p.x-x0)/(x1-x0||1))*w, pad+(1-(p.y-y0)/(y1-y0||1))*h];
+  }
+
+  function _canvasToData(ex, ey, canvas) {
+    var rect=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1, pad=16*dpr;
+    var x0=SC.xRange[0],x1=SC.xRange[1],y0=SC.yRange[0],y1=SC.yRange[1];
+    var w=canvas.width-2*pad, h=canvas.height-2*pad;
+    var cx=(ex-rect.left)*dpr, cy=(ey-rect.top)*dpr;
+    return [x0+((cx-pad)/(w||1))*(x1-x0), y0+(1-(cy-pad)/(h||1))*(y1-y0)];
+  }
+
+  function renderScatter() {
+    var canvas=document.getElementById('scatter-canvas');
+    if (!canvas.width) return;
+    var ctx=canvas.getContext('2d'), dpr=window.devicePixelRatio||1;
+    var showUnknown=document.getElementById('scatter-show-unknown').checked;
+    var showCorrEl=document.getElementById('scatter-show-corrected');
+    var showCorrected=showCorrEl ? showCorrEl.checked : true;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // Point radius: larger when zoomed in (fewer points visible)
+    var xSpan=(SC.xRange[1]-SC.xRange[0])||1, baseSpan=(SC.xBase[1]-SC.xBase[0])||1;
+    var zoomFactor=baseSpan/xSpan;
+    var r=Math.max(1.5,Math.min(4,2.5*Math.sqrt(zoomFactor)))*dpr;
+    for (var i=0; i<SC.points.length; i++) {
+      var p=SC.points[i];
+      if (!showUnknown && p.has_crack===-1) continue;
+      // Check if point is in current view
+      if (p.x<SC.xRange[0]||p.x>SC.xRange[1]||p.y<SC.yRange[0]||p.y>SC.yRange[1]) continue;
+      var c=_ptToCanvas(p,canvas), isSel=SC.sel.has(p.id);
+      var baseColor = isSel?'#facc15':p.has_crack===1?'#22c55e':p.has_crack===0?'#ef4444':'#475569';
+      var alpha = isSel ? 'ff' : 'aa';
+      ctx.beginPath(); ctx.arc(c[0],c[1],isSel?r*2.2:r,0,Math.PI*2);
+      ctx.fillStyle = baseColor + alpha;
+      ctx.fill();
+      // Ring for manually corrected/labeled images
+      if (showCorrected && p.corrected && !isSel) {
+        ctx.beginPath(); ctx.arc(c[0],c[1],r+1.5*dpr,0,Math.PI*2);
+        ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=0.8*dpr; ctx.stroke();
+      }
+    }
+    if (SC.lasso) {
+      ctx.save(); ctx.strokeStyle='#e2e8f0cc'; ctx.lineWidth=1.5*dpr; ctx.setLineDash([5*dpr,4*dpr]);
+      ctx.strokeRect(SC.lasso.x,SC.lasso.y,SC.lasso.w,SC.lasso.h);
+      ctx.fillStyle='rgba(59,130,246,0.07)'; ctx.fillRect(SC.lasso.x,SC.lasso.y,SC.lasso.w,SC.lasso.h);
+      ctx.restore();
+    }
+    document.getElementById('scatter-sel-count').textContent = SC.sel.size ? (SC.sel.size + ' selected') : '0 selected';
+    document.getElementById('btn-load-scatter').disabled = !SC.sel.size;
+  }
+
+  function initScatterEvents() {
+    var canvas=document.getElementById('scatter-canvas');
+
+    // Zoom with scroll wheel (centered on cursor)
+    canvas.addEventListener('wheel', function(e) {
+      e.preventDefault();
+      var factor = Math.pow(1.15, e.deltaY > 0 ? 1 : -1);
+      var d = _canvasToData(e.clientX, e.clientY, canvas);
+      SC.xRange=[d[0]+(SC.xRange[0]-d[0])*factor, d[0]+(SC.xRange[1]-d[0])*factor];
+      SC.yRange=[d[1]+(SC.yRange[0]-d[1])*factor, d[1]+(SC.yRange[1]-d[1])*factor];
+      renderScatter();
+    }, {passive: false});
+
+    // Prevent context menu on right-click (used for pan)
+    canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+    canvas.addEventListener('mousedown', function(e) {
+      if (e.button === 2 || e.button === 1) {
+        // Right/middle click = pan
+        SC.panning=true; SC.dragging=false; SC.lasso=null;
+        SC.panStart={ex:e.clientX,ey:e.clientY};
+        SC.panRangeStart={x:SC.xRange.slice(),y:SC.yRange.slice()};
+        canvas.style.cursor='grabbing';
+        e.preventDefault();
+      } else {
+        // Left click = select
+        SC.dragging=true; SC.panning=false; SC.dragStart={ex:e.clientX,ey:e.clientY}; SC.lasso=null;
+      }
+    });
+
+    canvas.addEventListener('mousemove', function(e) {
+      if (SC.panning) {
+        var rect=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1, pad=16*dpr;
+        var w=canvas.width-2*pad, h=canvas.height-2*pad;
+        var xSpan=SC.panRangeStart.x[1]-SC.panRangeStart.x[0];
+        var ySpan=SC.panRangeStart.y[1]-SC.panRangeStart.y[0];
+        var dx=-(e.clientX-SC.panStart.ex)*dpr/w*xSpan;
+        var dy=(e.clientY-SC.panStart.ey)*dpr/h*ySpan;
+        SC.xRange=[SC.panRangeStart.x[0]+dx,SC.panRangeStart.x[1]+dx];
+        SC.yRange=[SC.panRangeStart.y[0]+dy,SC.panRangeStart.y[1]+dy];
+        renderScatter(); return;
+      }
+      if (!SC.dragging) return;
+      var rect=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+      var x0=(SC.dragStart.ex-rect.left)*dpr, y0=(SC.dragStart.ey-rect.top)*dpr;
+      var x1=(e.clientX-rect.left)*dpr,       y1=(e.clientY-rect.top)*dpr;
+      SC.lasso={x:Math.min(x0,x1),y:Math.min(y0,y1),w:Math.abs(x1-x0),h:Math.abs(y1-y0)};
+      renderScatter();
+    });
+
+    canvas.addEventListener('mouseup', function(e) {
+      if (SC.panning) { SC.panning=false; canvas.style.cursor='crosshair'; return; }
+      if (!SC.dragging) return; SC.dragging=false;
+      if (!SC.lasso||(SC.lasso.w<5&&SC.lasso.h<5)) { SC.sel.clear(); SC.lasso=null; renderScatter(); return; }
+      var p0=_canvasToData(Math.min(SC.dragStart.ex,e.clientX),Math.max(SC.dragStart.ey,e.clientY),canvas);
+      var p1=_canvasToData(Math.max(SC.dragStart.ex,e.clientX),Math.min(SC.dragStart.ey,e.clientY),canvas);
+      var su=document.getElementById('scatter-show-unknown').checked;
+      SC.sel.clear();
+      for (var i=0; i<SC.points.length; i++) {
+        var p=SC.points[i];
+        if (!su&&p.has_crack===-1) continue;
+        if (p.x>=p0[0]&&p.x<=p1[0]&&p.y>=p0[1]&&p.y<=p1[1]) SC.sel.add(p.id);
+      }
+      SC.lasso=null; renderScatter();
+      if (SC.sel.size) loadScatterSelection();
+    });
+
+    canvas.addEventListener('mouseleave', function() {
+      if (SC.dragging) { SC.dragging=false; SC.lasso=null; renderScatter(); }
+      if (SC.panning) { SC.panning=false; canvas.style.cursor='crosshair'; }
+    });
+
+    window.addEventListener('resize',function(){ if(SC.open){resizeScatterCanvas();renderScatter();} });
+  }
+
+  async function loadScatterSelection() {
+    if (!SC.sel.size) return;
+    var ids = Array.from(SC.sel).join(',');
+    var d = await (await fetch('/api/images/by-ids?ids=' + encodeURIComponent(ids))).json();
+    S.images=d.items; S.total=d.items.length; S.pages=1; S.page=1; S.selected.clear();
+    renderGrid(); renderPagination(); renderBatchBar();
+    showToast(d.items.length + ' images loaded from scatter');
+  }
+
+  function clearScatterSel() { SC.sel.clear(); SC.lasso=null; renderScatter(); }
+
+  // ── Help ──────────────────────────────────────────────────────────────────────
+  function showHelp() { document.getElementById('help-overlay').classList.add('open'); }
+  function hideHelp() { document.getElementById('help-overlay').classList.remove('open'); }
+
+  // ── Similarity suggestions ────────────────────────────────────────────────────
+  var _suggest = { sourceId: null, labels: {}, items: [], checked: new Set() };
+
+  async function findSimilarFromModal() {
+    if (S.modalIdx === null) return;
+    var img = S.images[S.modalIdx];
+    await _openSuggest(img.id, img.labels || {});
+  }
+
+  async function _openSuggest(sourceId, labels) {
+    document.getElementById('suggest-info').textContent = 'Loading…';
+    document.getElementById('suggest-overlay').classList.add('open');
+
+    var p = new URLSearchParams({ id: sourceId, n: 200, mode: S.mode });
+    if (S.filters.source) p.set('source', S.filters.source);
+    var d = await (await fetch('/api/similar?' + p)).json();
+
+    _suggest.sourceId = sourceId;
+    _suggest.labels = labels;
+
+    // Only show images missing at least one of the source image's labeled categories
+    var labelKeys = Object.keys(labels).filter(function(k) {
+      return labels[k] !== null && labels[k] !== undefined;
+    });
+    var allItems = d.items || [];
+    var filtered = labelKeys.length > 0
+      ? allItems.filter(function(it) {
+          return labelKeys.some(function(k) {
+            var v = (it.labels || {})[k];
+            return v === null || v === undefined;
+          });
+        }).slice(0, 50)
+      : allItems.slice(0, 50);
+
+    _suggest.items = filtered;
+    _suggest.checked = new Set(filtered.map(function(it) { return it.id; }));
+    _renderSuggest();
+  }
+
+  function _renderSuggest() {
+    var items = _suggest.items;
+    var labels = _suggest.labels;
+
+    // Info line
+    var labelKeys = Object.keys(labels).filter(function(k) {
+      return labels[k] !== null && labels[k] !== undefined;
+    });
+    document.getElementById('suggest-info').textContent =
+      items.length + ' nearest unlabeled neighbours' + (labelKeys.length ? ' (missing: ' + labelKeys.join(', ') + ')' : '');
+
+    // Applied-labels chips
+    var schema = SCHEMA.categories;
+    var tagsHtml = '';
+    for (var ki in labels) {
+      var val = labels[ki];
+      if (val === null || val === undefined) continue;
+      var cat = schema.find(function(c) { return c.key === ki; });
+      var vdef = cat ? cat.values.find(function(v) { return String(v.value) === String(val); }) : null;
+      var color = vdef ? vdef.color : '#6b7280';
+      tagsHtml += '<span class="suggest-tag" style="border-color:' + color + '55">'
+        + (cat ? cat.label : ki) + ': ' + (vdef ? vdef.label : val) + '</span>';
+    }
+    document.getElementById('suggest-tags').innerHTML = tagsHtml || '<span style="color:var(--text-muted);font-size:0.78rem">No labels on source image yet</span>';
+
+    // Thumbnail grid
+    var html = '';
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      var checked = _suggest.checked.has(it.id);
+      // dim cards that already have some (but not all) of the target label keys
+      var hasLabels = labelKeys.length > 0 && labelKeys.some(function(k) {
+        var v = (it.labels || {})[k]; return v !== null && v !== undefined;
+      });
+      html += '<div class="suggest-card' + (checked ? ' checked' : '') + (hasLabels ? ' already-labeled' : '') + '" data-id="' + esc(it.id) + '" onclick="_suggestToggle(this)" title="' + esc(it.source) + '">'
+        + '<img src="/api/image?path=' + encodeURIComponent(it.path) + '" style="width:100%;height:auto;display:block;">'
+        + '<div class="s-check">' + (checked ? '✓' : '') + '</div>'
+        + '<div class="s-src">' + esc(it.source) + '</div>'
+        + '</div>';
+    }
+    document.getElementById('suggest-grid').innerHTML = html;
+    _updateSuggestCount();
+  }
+
+  function _suggestToggle(card) {
+    var id = card.dataset.id;
+    if (_suggest.checked.has(id)) _suggest.checked.delete(id);
+    else _suggest.checked.add(id);
+    card.classList.toggle('checked', _suggest.checked.has(id));
+    var chk = card.querySelector('.s-check');
+    if (chk) chk.textContent = _suggest.checked.has(id) ? '✓' : '';
+    _updateSuggestCount();
+  }
+
+  function _updateSuggestCount() {
+    var n = _suggest.checked.size;
+    document.getElementById('suggest-sel-count').textContent = n + ' of ' + _suggest.items.length + ' selected';
+    document.getElementById('suggest-apply-btn').textContent = 'Apply to ' + n + ' images';
+  }
+
+  function suggestSelectAll()  { _suggest.checked = new Set(_suggest.items.map(function(it){return it.id;})); _renderSuggest(); }
+  function suggestSelectNone() { _suggest.checked.clear(); _renderSuggest(); }
+  function suggestToggleUnlabeled() {
+    var labelKeys = Object.keys(_suggest.labels).filter(function(k) {
+      var v = _suggest.labels[k]; return v !== null && v !== undefined;
+    });
+    _suggest.checked = new Set(_suggest.items.filter(function(it) {
+      return labelKeys.length === 0 || labelKeys.every(function(k) {
+        var v = (it.labels || {})[k]; return v === null || v === undefined;
+      });
+    }).map(function(it) { return it.id; }));
+    _renderSuggest();
+  }
+
+  async function suggestApply() {
+    var ids = Array.from(_suggest.checked);
+    if (!ids.length) { hideSuggest(); return; }
+    var labels = _suggest.labels;
+    var r = await fetch('/api/labels/batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: ids, labels: labels }),
+    });
+    if (!r.ok) { alert('Failed to apply labels.'); return; }
+    var d = await r.json();
+    hideSuggest();
+    showToast(d.updated + ' images labeled from similarity', 'toast-batch');
+    await loadImages(); await loadStats(); await loadSources();
+  }
+
+  function hideSuggest() {
+    document.getElementById('suggest-overlay').classList.remove('open');
+  }
+
+  // ── Schema editor ─────────────────────────────────────────────────────────────
+  var _schemaDraft = null;
+
+  function showSchemaEditor() {
+    _schemaDraft = JSON.parse(JSON.stringify(SCHEMA.categories));
+    _renderSchemaEditor();
+    document.getElementById('schema-overlay').classList.add('open');
+  }
+
+  function hideSchemaEditor() {
+    document.getElementById('schema-overlay').classList.remove('open');
+    _schemaDraft = null;
+  }
+
+  function _renderSchemaEditor() {
+    var cats = _schemaDraft;
+    var html = '';
+    for (var ci = 0; ci < cats.length; ci++) {
+      var cat = cats[ci];
+      html += '<div class="schema-cat" data-ci="' + ci + '">';
+      // Category header
+      html += '<div class="schema-cat-header">'
+        + '<input type="text" placeholder="key (e.g. material)" value="' + esc(cat.key||'') + '" oninput="_schemaSetCat(' + ci + ',\'key\',this.value)" style="width:110px">'
+        + '<input type="text" placeholder="Label" value="' + esc(cat.label||'') + '" oninput="_schemaSetCat(' + ci + ',\'label\',this.value)" style="flex:1">'
+        + '<button class="schema-del" onclick="_schemaDelCat(' + ci + ')" title="Delete category">×</button>'
+        + '</div>';
+      // Column headers
+      html += '<div class="schema-val-row" style="margin-bottom:-2px">'
+        + '<span class="schema-lbl">value</span><span class="schema-lbl">label</span>'
+        + '<span class="schema-lbl">shortcut</span><span class="schema-lbl">color</span><span></span></div>';
+      // Values
+      var vals = cat.values || [];
+      for (var vi = 0; vi < vals.length; vi++) {
+        var v = vals[vi];
+        html += '<div class="schema-val-row" data-vi="' + vi + '">'
+          + '<input type="text" placeholder="value" value="' + esc(String(v.value||'')) + '" oninput="_schemaSetVal(' + ci + ',' + vi + ',\'value\',this.value)">'
+          + '<input type="text" placeholder="Label" value="' + esc(v.label||'') + '" oninput="_schemaSetVal(' + ci + ',' + vi + ',\'label\',this.value)">'
+          + '<input type="text" placeholder="a" maxlength="1" value="' + esc(v.shortcut||'') + '" oninput="_schemaSetVal(' + ci + ',' + vi + ',\'shortcut\',this.value)" style="text-align:center">'
+          + '<input type="color" value="' + (v.color||'#6b7280') + '" oninput="_schemaSetVal(' + ci + ',' + vi + ',\'color\',this.value)">'
+          + '<button class="schema-del" onclick="_schemaDelVal(' + ci + ',' + vi + ')" title="Delete value">×</button>'
+          + '</div>';
+      }
+      html += '<button class="btn-schema-add" onclick="_schemaAddVal(' + ci + ')">+ Add value</button>';
+      html += '</div>';
+    }
+    document.getElementById('schema-editor-body').innerHTML = html;
+  }
+
+  function _schemaSetCat(ci, field, val) { _schemaDraft[ci][field] = val; }
+  function _schemaSetVal(ci, vi, field, val) { _schemaDraft[ci].values[vi][field] = val; }
+
+  function _schemaDelCat(ci) {
+    if (!confirm('Delete category "' + (_schemaDraft[ci].label||_schemaDraft[ci].key) + '"?')) return;
+    _schemaDraft.splice(ci, 1);
+    _renderSchemaEditor();
+  }
+
+  function _schemaDelVal(ci, vi) {
+    _schemaDraft[ci].values.splice(vi, 1);
+    _renderSchemaEditor();
+  }
+
+  function _schemaAddVal(ci) {
+    _schemaDraft[ci].values.push({ value: '', label: '', shortcut: '', color: '#6b7280' });
+    _renderSchemaEditor();
+    // Focus the new value input
+    var rows = document.querySelectorAll('[data-ci="' + ci + '"] .schema-val-row');
+    var last = rows[rows.length - 1];
+    if (last) last.querySelector('input').focus();
+  }
+
+  function schemaAddCategory() {
+    _schemaDraft.push({ key: '', label: '', type: 'categorical', values: [] });
+    _renderSchemaEditor();
+    var cats = document.querySelectorAll('.schema-cat');
+    var last = cats[cats.length - 1];
+    if (last) last.querySelector('input').focus();
+  }
+
+  async function schemaSave() {
+    // Basic validation
+    for (var ci = 0; ci < _schemaDraft.length; ci++) {
+      var cat = _schemaDraft[ci];
+      if (!cat.key || !cat.label) { alert('Category ' + (ci+1) + ' needs a key and label.'); return; }
+      for (var vi = 0; vi < (cat.values||[]).length; vi++) {
+        if (!String(cat.values[vi].value)) { alert('Category "' + cat.label + '", value ' + (vi+1) + ' needs a value.'); return; }
+      }
+    }
+    var r = await fetch('/api/schema', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories: _schemaDraft }),
+    });
+    if (!r.ok) { alert('Failed to save schema.'); return; }
+    SCHEMA.categories = _schemaDraft;
+    hideSchemaEditor();
+    renderCatFilters();
+    renderBatchBar();
+    showToast('Schema saved');
+  }
+
+  // ── Crack annotation canvas ───────────────────────────────────────────────────
+  var _ann = {
+    imgId: null, imgPath: null, imgEl: null,
+    canvas: null, ctx: null,
+    maskCanvas: null, maskCtx: null,
+    heatmapCanvas: null,   // red-tinted pre-processed heatmap at display resolution
+    showHeatmap: false,
+    tool: 'draw', brushSize: 20,
+    drawing: false, lastX: 0, lastY: 0,
+    dirty: false,
+  };
+
+  function openAnnotationFromModal() {
+    if (S.modalIdx === null) return;
+    var img = S.images[S.modalIdx];
+    openAnnotation(img.id, img.path);
+  }
+
+  async function predictAnnotation() {
+    if (S.modalIdx === null) return;
+    var img = S.images[S.modalIdx];
+    var btn = document.getElementById('btn-predict-crack');
+    btn.textContent = 'Predicting…';
+    btn.disabled = true;
+    try {
+      var r = await fetch('/api/crack-predict-and-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: img.id, image_path: img.path }),
+      });
+      if (!r.ok) {
+        var err = await r.json();
+        showToast('Prediction failed: ' + (err.detail || r.status), 'toast-revert');
+        return;
+      }
+      var d = await r.json();
+      document.getElementById('ann-modal-badge').style.display = '';
+      _drawModalAnn(d.mask_b64);
+      _afterAnnotationChange();
+      showToast('Crack predicted — ' + Math.round(d.crack_fraction * 100) + '% crack area');
+    } catch(e) {
+      showToast('Prediction error: ' + e, 'toast-revert');
+    } finally {
+      btn.textContent = 'Predict Crack';
+      btn.disabled = false;
+    }
+  }
+
+  async function openAnnotation(imgId, imgPath) {
+    _ann.imgId = imgId;
+    _ann.imgPath = imgPath;
+    _ann.heatmapCanvas = null;
+    _ann.showHeatmap = false;
+    _ann.dirty = false;
+    _bbox.imgId = imgId;
+    _bbox.imgPath = imgPath;
+    _bbox.bboxes = [];
+    _bbox.nat_w = 0; _bbox.nat_h = 0;
+    _bbox.drawing = false;
+    document.getElementById('ann-path').textContent = imgPath;
+    document.getElementById('ann-status').textContent = 'Loading image…';
+    document.getElementById('ann-btn-ai').textContent = 'Show AI';
+    document.getElementById('ann-btn-ai').classList.remove('active');
+    // Reset to crack mask tab
+    setAnnTab('crack');
+    document.getElementById('ann-overlay').classList.add('open');
+
+    var imgEl = new Image();
+    imgEl.onload = function() {
+      // Defer one frame so the overlay is fully rendered and area has real dimensions
+      requestAnimationFrame(function() {
+      var area = document.getElementById('ann-canvas-area');
+      var maxW = area.clientWidth || window.innerWidth;
+      var maxH = area.clientHeight || Math.round(window.innerHeight * 0.82);
+      var scale = Math.min(maxW / imgEl.naturalWidth, maxH / imgEl.naturalHeight, 1);
+      var dw = Math.max(1, Math.round(imgEl.naturalWidth * scale));
+      var dh = Math.max(1, Math.round(imgEl.naturalHeight * scale));
+
+      var canvas = document.getElementById('ann-canvas');
+      canvas.width = dw; canvas.height = dh;
+      canvas.style.width = dw + 'px'; canvas.style.height = dh + 'px';
+      _ann.canvas = canvas; _ann.ctx = canvas.getContext('2d');
+
+      var mc = document.createElement('canvas');
+      mc.width = dw; mc.height = dh;
+      _ann.maskCanvas = mc; _ann.maskCtx = mc.getContext('2d');
+
+      _ann.imgEl = imgEl;
+      _bbox.imgEl = imgEl;
+      _bbox.nat_w = imgEl.naturalWidth;
+      _bbox.nat_h = imgEl.naturalHeight;
+      _annRender();
+      document.getElementById('ann-status').textContent = 'Ready. Draw over cracks.';
+
+      // Load existing annotations
+      _annLoadExisting();
+      _bboxLoadExisting();
+      }); // end requestAnimationFrame
+    };
+    imgEl.onerror = function() {
+      document.getElementById('ann-status').textContent = 'Failed to load image.';
+    };
+    imgEl.src = '/api/image?path=' + encodeURIComponent(imgPath);
+
+    // Set up event listeners
+    var canvas = document.getElementById('ann-canvas');
+    canvas.onmousedown = _annMouseDown;
+    canvas.onmousemove = _annMouseMove;
+    canvas.onmouseup = _annMouseUp;
+    canvas.onmouseleave = _annMouseUp;
+    canvas.ontouchstart = _annTouchStart;
+    canvas.ontouchmove = _annTouchMove;
+    canvas.ontouchend = _annMouseUp;
+  }
+
+  function hideAnnotation() {
+    document.getElementById('ann-overlay').classList.remove('open');
+    _ann.drawing = false;
+  }
+
+  function setAnnTool(t) {
+    _ann.tool = t;
+    document.getElementById('ann-btn-draw').classList.toggle('active', t === 'draw');
+    document.getElementById('ann-btn-erase').classList.toggle('active', t === 'erase');
+    document.getElementById('ann-canvas').style.cursor = t === 'erase' ? 'cell' : 'crosshair';
+  }
+
+  function _annRender() {
+    if (!_ann.ctx || !_ann.imgEl) return;
+    var ctx = _ann.ctx;
+    var w = _ann.canvas.width, h = _ann.canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(_ann.imgEl, 0, 0, w, h);
+
+    if (_ann.showHeatmap && _ann.heatmapCanvas) {
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.drawImage(_ann.heatmapCanvas, 0, 0, w, h);
+      ctx.restore();
+    }
+
+    // Draw annotation mask: mask white areas tinted red
+    if (_ann.maskCanvas) {
+      var tmp = document.createElement('canvas');
+      tmp.width = w; tmp.height = h;
+      var t = tmp.getContext('2d');
+      t.fillStyle = 'rgba(255, 50, 50, 0.72)';
+      t.fillRect(0, 0, w, h);
+      t.globalCompositeOperation = 'destination-in';
+      t.drawImage(_ann.maskCanvas, 0, 0);
+      ctx.drawImage(tmp, 0, 0);
+    }
+  }
+
+  function _annCoords(e) {
+    var rect = _ann.canvas.getBoundingClientRect();
+    return [e.clientX - rect.left, e.clientY - rect.top];
+  }
+
+  function _annMouseDown(e) {
+    e.preventDefault();
+    _ann.drawing = true;
+    var xy = _annCoords(e);
+    _ann.lastX = xy[0]; _ann.lastY = xy[1];
+    _annStroke(xy[0], xy[1], xy[0], xy[1]);
+  }
+
+  function _annMouseMove(e) {
+    if (!_ann.drawing) return;
+    var xy = _annCoords(e);
+    _annStroke(_ann.lastX, _ann.lastY, xy[0], xy[1]);
+    _ann.lastX = xy[0]; _ann.lastY = xy[1];
+  }
+
+  function _annMouseUp() { _ann.drawing = false; }
+
+  function _annTouchStart(e) {
+    e.preventDefault();
+    if (!e.touches.length) return;
+    var t = e.touches[0];
+    _ann.drawing = true;
+    var xy = _annCoords(t);
+    _ann.lastX = xy[0]; _ann.lastY = xy[1];
+    _annStroke(xy[0], xy[1], xy[0], xy[1]);
+  }
+
+  function _annTouchMove(e) {
+    e.preventDefault();
+    if (!_ann.drawing || !e.touches.length) return;
+    var t = e.touches[0];
+    var xy = _annCoords(t);
+    _annStroke(_ann.lastX, _ann.lastY, xy[0], xy[1]);
+    _ann.lastX = xy[0]; _ann.lastY = xy[1];
+  }
+
+  function _annStroke(x0, y0, x1, y1) {
+    var mc = _ann.maskCtx;
+    var bs = parseInt(document.getElementById('ann-brush').value, 10) || 20;
+    mc.lineWidth = bs;
+    mc.lineCap = 'round';
+    mc.lineJoin = 'round';
+    if (_ann.tool === 'erase') {
+      mc.globalCompositeOperation = 'destination-out';
+      mc.strokeStyle = 'rgba(0,0,0,1)';
+    } else {
+      mc.globalCompositeOperation = 'source-over';
+      mc.strokeStyle = 'rgba(255,255,255,1)';
+    }
+    mc.beginPath();
+    mc.moveTo(x0, y0);
+    mc.lineTo(x1, y1);
+    mc.stroke();
+    _ann.dirty = true;
+    _annRender();
+  }
+
+  function clearAnnotation() {
+    if (!_ann.maskCtx) return;
+    _ann.maskCtx.clearRect(0, 0, _ann.maskCanvas.width, _ann.maskCanvas.height);
+    _ann.dirty = true;
+    _annRender();
+  }
+
+  async function loadAIHeatmap() {
+    var btn = document.getElementById('ann-load-ai');
+    btn.textContent = 'Loading…'; btn.disabled = true;
+    document.getElementById('ann-status').textContent = 'Running crack detection…';
+    try {
+      var r = await fetch('/api/crack-heatmap?path=' + encodeURIComponent(_ann.imgPath));
+      if (!r.ok) {
+        var err = await r.json();
+        document.getElementById('ann-status').textContent = 'AI error: ' + (err.detail || r.status);
+        return;
+      }
+      var d = await r.json();
+      // Build red-tinted heatmap canvas at display resolution
+      var himg = new Image();
+      himg.onerror = function() {
+        document.getElementById('ann-status').textContent = 'Heatmap image decode failed (invalid base64 or PNG).';
+      };
+      himg.onload = function() {
+        var w = _ann.canvas.width, h = _ann.canvas.height;
+        var tmp = document.createElement('canvas');
+        tmp.width = w; tmp.height = h;
+        var t = tmp.getContext('2d');
+        t.drawImage(himg, 0, 0, w, h);
+        var id = t.getImageData(0, 0, w, h);
+        var px = id.data;
+        for (var i = 0; i < px.length; i += 4) {
+          var b = px[i]; // grayscale brightness
+          px[i] = 255; px[i+1] = 60; px[i+2] = 60;
+          px[i+3] = Math.round(b * 0.85);
+        }
+        t.putImageData(id, 0, 0);
+        _ann.heatmapCanvas = tmp;
+        _ann.showHeatmap = true;
+        document.getElementById('ann-btn-ai').classList.add('active');
+        document.getElementById('ann-btn-ai').textContent = 'Hide AI';
+        _annRender();
+        document.getElementById('ann-status').textContent =
+          'AI loaded. Crack fraction: ' + Math.round(d.crack_fraction * 100) + '%. Refine with brush.';
+      };
+      himg.src = 'data:image/png;base64,' + d.heatmap_b64;
+    } catch(e) {
+      document.getElementById('ann-status').textContent = 'AI request failed: ' + e;
+    } finally {
+      btn.textContent = 'Load AI Prediction'; btn.disabled = false;
+    }
+  }
+
+  function toggleAnnHeatmap() {
+    if (!_ann.heatmapCanvas) { loadAIHeatmap(); return; }
+    _ann.showHeatmap = !_ann.showHeatmap;
+    var btn = document.getElementById('ann-btn-ai');
+    btn.textContent = _ann.showHeatmap ? 'Hide AI' : 'Show AI';
+    btn.classList.toggle('active', _ann.showHeatmap);
+    _annRender();
+  }
+
+  function useAIasMask() {
+    if (!_ann.heatmapCanvas) {
+      document.getElementById('ann-status').textContent = 'Load AI Prediction first, then click "Use AI as Mask".';
+      return;
+    }
+    var w = _ann.maskCanvas.width, h = _ann.maskCanvas.height;
+    var hCtx = _ann.heatmapCanvas.getContext('2d');
+    var hData = hCtx.getImageData(0, 0, w, h);
+    var px = hData.data;
+    var maskData = _ann.maskCtx.createImageData(w, h);
+    var md = maskData.data;
+    var count = 0;
+    for (var i = 0; i < px.length; i += 4) {
+      if (px[i + 3] > 100) {
+        md[i] = 255; md[i + 1] = 255; md[i + 2] = 255; md[i + 3] = 255;
+        count++;
+      }
+    }
+    _ann.maskCtx.clearRect(0, 0, w, h);
+    _ann.maskCtx.putImageData(maskData, 0, 0);
+    _ann.dirty = true;
+    _annRender();
+    document.getElementById('ann-status').textContent = 'AI mask applied (' + count + ' px). Erase false positives then Save.';
+  }
+
+  async function _annLoadExisting() {
+    var r = await fetch('/api/crack-annotation?id=' + encodeURIComponent(_ann.imgId));
+    if (!r.ok) return;
+    var d = await r.json();
+    if (!d.exists) { return; }
+    if (!d.mask_b64) {
+      document.getElementById('ann-status').textContent = 'Annotation found but mask missing — re-save to fix.';
+      return;
+    }
+    var img = new Image();
+    img.onerror = function() {
+      document.getElementById('ann-status').textContent = 'Failed to decode saved annotation mask.';
+    };
+    img.onload = function() {
+      var w = _ann.maskCanvas.width, h = _ann.maskCanvas.height;
+      _ann.maskCtx.clearRect(0, 0, w, h);
+      _ann.maskCtx.globalAlpha = 1;
+      _ann.maskCtx.globalCompositeOperation = 'source-over';
+      _ann.maskCtx.drawImage(img, 0, 0, w, h);
+      _annRender();
+      // Check if mask is empty (might be a blank save)
+      var check = _ann.maskCtx.getImageData(0, 0, w, h);
+      var hasPixels = false;
+      for (var j = 3; j < check.data.length; j += 4) {
+        if (check.data[j] > 30) { hasPixels = true; break; }
+      }
+      if (hasPixels) {
+        document.getElementById('ann-status').textContent = 'Loaded saved annotation (' + d.source + '). Refine and save.';
+      } else {
+        document.getElementById('ann-status').textContent = 'Loaded annotation but mask is empty — try "Load AI Prediction" then "Use AI as Mask".';
+      }
+    };
+    img.src = 'data:image/png;base64,' + d.mask_b64;
+  }
+
+  async function saveAnnotation() {
+    if (!_ann.maskCanvas) return;
+
+    // Warn if nothing was drawn
+    var checkId = _ann.maskCtx.getImageData(0, 0, _ann.maskCanvas.width, _ann.maskCanvas.height);
+    var hasContent = false;
+    for (var ci = 3; ci < checkId.data.length; ci += 4) {
+      if (checkId.data[ci] > 30) { hasContent = true; break; }
+    }
+    if (!hasContent && !confirm('The mask is empty — no crack regions drawn.\nSave anyway? (Load AI Prediction → Use AI as Mask to auto-fill.)')) return;
+
+    document.getElementById('ann-status').textContent = 'Saving…';
+
+    // Export mask at image native size
+    var natW = _ann.imgEl ? _ann.imgEl.naturalWidth : _ann.canvas.width;
+    var natH = _ann.imgEl ? _ann.imgEl.naturalHeight : _ann.canvas.height;
+    var tmp = document.createElement('canvas');
+    tmp.width = natW; tmp.height = natH;
+    var t = tmp.getContext('2d');
+    t.drawImage(_ann.maskCanvas, 0, 0, natW, natH);
+    var maskB64 = tmp.toDataURL('image/png').split(',')[1];
+
+    try {
+      var r = await fetch('/api/crack-annotation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: _ann.imgId,
+          image_path: _ann.imgPath,
+          mask_b64: maskB64,
+          source: 'manual',
+          nat_w: natW,
+          nat_h: natH,
+        }),
+      });
+      if (!r.ok) { document.getElementById('ann-status').textContent = 'Save failed.'; return; }
+      _ann.dirty = false;
+      // Update badge + overlay in labeling modal
+      document.getElementById('ann-modal-badge').style.display = '';
+      _drawModalAnn(maskB64);
+      _afterAnnotationChange();
+      document.getElementById('ann-status').textContent = 'Saved!';
+      showToast('Crack annotation saved');
+      setTimeout(hideAnnotation, 700);
+    } catch(e) {
+      document.getElementById('ann-status').textContent = 'Save error: ' + e;
+    }
+  }
+
+  async function deleteAnnotation() {
+    if (!_ann.imgId) return;
+    if (!confirm('Delete saved annotation for this image?')) return;
+    var r = await fetch('/api/crack-annotation?id=' + encodeURIComponent(_ann.imgId), { method: 'DELETE' });
+    if (r.ok) {
+      clearAnnotation();
+      document.getElementById('ann-modal-badge').style.display = 'none';
+      document.getElementById('modal-ann-canvas').style.display = 'none';
+      // Remove grid overlay for this card (or reload list if filter depends on annotation state)
+      var delCard = document.querySelector('.img-card[data-id="' + _ann.imgId + '"]');
+      if (delCard) { var delOv = delCard.querySelector('.card-ann-overlay'); if (delOv) delOv.remove(); }
+      _afterAnnotationChange();
+      document.getElementById('ann-status').textContent = 'Annotation deleted.';
+      showToast('Annotation deleted', 'toast-revert');
+    }
+  }
+
+  // ── Annotation modal dispatcher ───────────────────────────────────────────────
+
+  function annSave()   { if (_annCurrentTab === 'bbox') saveBboxAnnotation(); else saveAnnotation(); }
+  function annDelete() { if (_annCurrentTab === 'bbox') deleteBboxAnnotation(); else deleteAnnotation(); }
+  function annClear()  { if (_annCurrentTab === 'bbox') clearBboxAnnotations(); else clearAnnotation(); }
+
+  // ── Annotation tab switching ──────────────────────────────────────────────────
+
+  var _annCurrentTab = 'crack';
+
+  function setAnnTab(tab) {
+    _annCurrentTab = tab;
+    document.getElementById('ann-tab-crack').classList.toggle('active', tab === 'crack');
+    document.getElementById('ann-tab-bbox').classList.toggle('active', tab === 'bbox');
+
+    // Crack-mode elements
+    var crackEls = ['ann-btn-draw','ann-btn-erase','ann-btn-ai','ann-load-ai','ann-use-ai','ann-crack-sep','ann-crack-sep2','ann-brush-label'];
+    crackEls.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = tab === 'crack' ? '' : 'none';
+    });
+    document.getElementById('ann-canvas-area').style.display = tab === 'crack' ? '' : 'none';
+
+    // Bbox-mode elements
+    document.getElementById('ann-bbox-area').style.display = tab === 'bbox' ? 'flex' : 'none';
+    document.getElementById('ann-bbox-area').style.flex = tab === 'bbox' ? '1' : '';
+    document.getElementById('ann-bbox-list-area').style.display = tab === 'bbox' ? '' : 'none';
+    document.getElementById('ann-bbox-class-row').style.display = tab === 'bbox' ? 'flex' : 'none';
+
+    // Update status text
+    if (tab === 'bbox') {
+      document.getElementById('ann-status').textContent = 'Click and drag to draw a bounding box.';
+      _initBboxCanvas();
+      _bboxRender();
+    } else {
+      document.getElementById('ann-status').textContent = 'Draw over cracks with brush.';
+    }
+  }
+
+  // ── Bounding-box annotation ───────────────────────────────────────────────────
+
+  var _bbox = {
+    imgId: null, imgPath: null, imgEl: null,
+    canvas: null, ctx: null,
+    bboxes: [],
+    drawing: false,
+    startX: 0, startY: 0,
+    nat_w: 0, nat_h: 0,
+  };
+
+  var _BBOX_COLORS = ['#22c55e','#3b82f6','#f59e0b','#ef4444','#a855f7','#06b6d4','#f97316','#ec4899'];
+  function _bboxColor(idx) { return _BBOX_COLORS[idx % _BBOX_COLORS.length]; }
+
+  function _initBboxCanvas() {
+    if (!_bbox.imgEl) return;
+    var area = document.getElementById('ann-bbox-area');
+    var maxW = area.clientWidth || window.innerWidth;
+    var maxH = area.clientHeight || Math.round(window.innerHeight * 0.7);
+    var scale = Math.min(maxW / _bbox.imgEl.naturalWidth, maxH / _bbox.imgEl.naturalHeight, 1);
+    var dw = Math.max(1, Math.round(_bbox.imgEl.naturalWidth * scale));
+    var dh = Math.max(1, Math.round(_bbox.imgEl.naturalHeight * scale));
+    var canvas = document.getElementById('ann-bbox-canvas');
+    canvas.width = dw; canvas.height = dh;
+    canvas.style.width = dw + 'px'; canvas.style.height = dh + 'px';
+    _bbox.canvas = canvas; _bbox.ctx = canvas.getContext('2d');
+    canvas.onmousedown = _bboxMouseDown;
+    canvas.onmousemove = _bboxMouseMove;
+    canvas.onmouseup = _bboxMouseUp;
+    canvas.onmouseleave = _bboxMouseUp;
+    canvas.style.cursor = 'crosshair';
+  }
+
+  function _bboxRender(previewX, previewY, previewW, previewH) {
+    if (!_bbox.ctx || !_bbox.imgEl || !_bbox.canvas) return;
+    var ctx = _bbox.ctx;
+    var W = _bbox.canvas.width, H = _bbox.canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(_bbox.imgEl, 0, 0, W, H);
+    _bbox.bboxes.forEach(function(b, i) {
+      var x = b.x * W, y = b.y * H, w = b.w * W, h = b.h * H;
+      ctx.strokeStyle = _bboxColor(i);
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.strokeRect(x, y, w, h);
+      ctx.fillStyle = _bboxColor(i);
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(b.label, x + 3, y + 13);
+    });
+    if (previewW !== undefined && Math.abs(previewW) > 2 && Math.abs(previewH) > 2) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(previewX, previewY, previewW, previewH);
+      ctx.setLineDash([]);
+    }
+    _renderBboxList();
+  }
+
+  function _renderBboxList() {
+    var listEl = document.getElementById('ann-bbox-list');
+    if (!listEl) return;
+    if (!_bbox.bboxes.length) {
+      listEl.innerHTML = '<span style="color:var(--text-muted);font-size:0.78rem">No boxes yet. Click and drag to draw a rectangle.</span>';
+      return;
+    }
+    listEl.innerHTML = _bbox.bboxes.map(function(b, i) {
+      return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">'
+        + '<span style="display:inline-block;width:10px;height:10px;background:' + _bboxColor(i) + ';border-radius:2px;flex-shrink:0"></span>'
+        + '<span style="font-size:0.78rem;flex:1">' + esc(b.label) + '</span>'
+        + '<button onclick="removeBbox(' + i + ')" style="font-size:0.7rem;padding:0 4px;background:none;border:none;color:var(--text-muted);cursor:pointer">✕</button>'
+        + '</div>';
+    }).join('');
+  }
+
+  function removeBbox(idx) {
+    _bbox.bboxes.splice(idx, 1);
+    _bboxRender();
+  }
+
+  function clearBboxAnnotations() {
+    if (_bbox.bboxes.length && !confirm('Clear all bounding boxes for this image?')) return;
+    _bbox.bboxes = [];
+    _bboxRender();
+  }
+
+  function _bboxCoords(e) {
+    var rect = _bbox.canvas.getBoundingClientRect();
+    return [e.clientX - rect.left, e.clientY - rect.top];
+  }
+
+  function _bboxMouseDown(e) {
+    e.preventDefault();
+    _bbox.drawing = true;
+    var xy = _bboxCoords(e);
+    _bbox.startX = xy[0]; _bbox.startY = xy[1];
+  }
+
+  function _bboxMouseMove(e) {
+    if (!_bbox.drawing) return;
+    var xy = _bboxCoords(e);
+    _bboxRender(_bbox.startX, _bbox.startY, xy[0] - _bbox.startX, xy[1] - _bbox.startY);
+  }
+
+  function _bboxMouseUp(e) {
+    if (!_bbox.drawing) return;
+    _bbox.drawing = false;
+    if (!e) { _bboxRender(); return; }
+    var xy = _bboxCoords(e);
+    var dx = xy[0] - _bbox.startX, dy = xy[1] - _bbox.startY;
+    if (Math.abs(dx) < 5 || Math.abs(dy) < 5) { _bboxRender(); return; }
+    var W = _bbox.canvas.width, H = _bbox.canvas.height;
+    var x = Math.min(_bbox.startX, xy[0]) / W;
+    var y = Math.min(_bbox.startY, xy[1]) / H;
+    var w = Math.abs(dx) / W;
+    var h = Math.abs(dy) / H;
+    var label = document.getElementById('ann-bbox-class').value.trim() || 'object';
+    _bbox.bboxes.push({ x: x, y: y, w: w, h: h, label: label });
+    _bboxRender();
+  }
+
+  async function _bboxLoadExisting() {
+    if (!_bbox.imgId) return;
+    try {
+      var r = await fetch('/api/bbox-annotation?id=' + encodeURIComponent(_bbox.imgId));
+      if (!r.ok) return;
+      var d = await r.json();
+      if (!d.exists) return;
+      _bbox.bboxes = d.bboxes || [];
+      if (d.width) _bbox.nat_w = d.width;
+      if (d.height) _bbox.nat_h = d.height;
+      if (_annCurrentTab === 'bbox') _bboxRender();
+    } catch(e) {}
+  }
+
+  async function saveBboxAnnotation() {
+    if (!_bbox.imgId) return;
+    if (!_bbox.bboxes.length && !confirm('No bounding boxes drawn. Save empty annotation anyway?')) return;
+    document.getElementById('ann-status').textContent = 'Saving…';
+    var natW = _bbox.imgEl ? _bbox.imgEl.naturalWidth : 0;
+    var natH = _bbox.imgEl ? _bbox.imgEl.naturalHeight : 0;
+    try {
+      var r = await fetch('/api/bbox-annotation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: _bbox.imgId, image_path: _bbox.imgPath, bboxes: _bbox.bboxes, nat_w: natW, nat_h: natH }),
+      });
+      if (!r.ok) { document.getElementById('ann-status').textContent = 'Save failed.'; return; }
+      document.getElementById('ann-status').textContent = 'Saved ' + _bbox.bboxes.length + ' boxes!';
+      showToast('Bbox annotation saved — ' + _bbox.bboxes.length + ' box' + (_bbox.bboxes.length !== 1 ? 'es' : ''));
+      setTimeout(hideAnnotation, 700);
+    } catch(e) {
+      document.getElementById('ann-status').textContent = 'Save error: ' + e;
+    }
+  }
+
+  async function deleteBboxAnnotation() {
+    if (!_bbox.imgId || !confirm('Delete all bounding boxes for this image?')) return;
+    var r = await fetch('/api/bbox-annotation?id=' + encodeURIComponent(_bbox.imgId), { method: 'DELETE' });
+    if (r.ok) {
+      _bbox.bboxes = [];
+      _bboxRender();
+      document.getElementById('ann-status').textContent = 'Boxes deleted.';
+      showToast('Bbox annotation deleted', 'toast-revert');
+    }
+  }
+
+  function _drawModalAnn(maskB64) {
+    var modalImg = document.getElementById('modal-img');
+    var annCanvas = document.getElementById('modal-ann-canvas');
+    function render() {
+      var w = modalImg.clientWidth, h = modalImg.clientHeight;
+      if (!w || !h) return;
+      annCanvas.width = w; annCanvas.height = h;
+      annCanvas.style.display = '';
+      var mImg = new Image();
+      mImg.onload = function() {
+        var ctx = annCanvas.getContext('2d');
+        ctx.clearRect(0, 0, w, h);
+        var tmp = document.createElement('canvas');
+        tmp.width = w; tmp.height = h;
+        var t = tmp.getContext('2d');
+        t.fillStyle = 'rgba(255, 50, 50, 0.65)';
+        t.fillRect(0, 0, w, h);
+        t.globalCompositeOperation = 'destination-in';
+        t.drawImage(mImg, 0, 0, w, h);
+        ctx.drawImage(tmp, 0, 0);
+      };
+      mImg.src = 'data:image/png;base64,' + maskB64;
+    }
+    if (modalImg.complete && modalImg.naturalWidth) {
+      render();
+    } else {
+      modalImg.addEventListener('load', function onL() { modalImg.removeEventListener('load', onL); render(); });
+    }
+  }
+
+  // Show/hide annotated badge + draw annotation overlay when modal opens
+  var _origOpenModal = openModal;
+  openModal = function(idx) {
+    _origOpenModal(idx);
+    // Clear previous overlay immediately
+    var annCanvas = document.getElementById('modal-ann-canvas');
+    annCanvas.style.display = 'none';
+    var img = S.images[idx];
+    if (!img) return;
+    fetch('/api/crack-annotation?id=' + encodeURIComponent(img.id)).then(function(r) {
+      return r.json();
+    }).then(function(d) {
+      if (S.modalIdx !== idx) return; // user navigated away
+      document.getElementById('ann-modal-badge').style.display = d.exists ? '' : 'none';
+      if (d.exists && d.mask_b64) _drawModalAnn(d.mask_b64);
+    }).catch(function() {});
+  };
+
+  // ── Grid annotation overlays ──────────────────────────────────────────────────
+  // Call after any annotation save/delete to keep grid in sync.
+  // If an annotation filter is active the whole list re-fetches (an image may
+  // now appear or disappear). Otherwise just redraw overlays if they are shown.
+  function _afterAnnotationChange() {
+    if (S.filters.annotation) {
+      loadImages();
+    } else if (S.showGridAnnotations) {
+      _applyGridAnnotations();
+    }
+  }
+
+  function toggleGridAnnotations() {
+    S.showGridAnnotations = !S.showGridAnnotations;
+    var btn = document.getElementById('btn-toggle-ann-overlay');
+    btn.classList.toggle('active', S.showGridAnnotations);
+    btn.textContent = S.showGridAnnotations ? 'Hide Cracks' : 'Show Cracks';
+    if (S.showGridAnnotations) {
+      _applyGridAnnotations();
+    } else {
+      // Remove all overlays
+      document.querySelectorAll('.card-ann-overlay').forEach(function(c) { c.remove(); });
+    }
+  }
+
+  function _applyGridAnnotations() {
+    var ids = S.images.map(function(img) { return img.id; });
+    if (!ids.length) return;
+    fetch('/api/crack-annotations-batch?ids=' + ids.map(encodeURIComponent).join(','))
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var anns = d.annotations || {};
+        Object.keys(anns).forEach(function(imgId) {
+          var ann = anns[imgId];
+          var card = document.querySelector('.img-card[data-id="' + imgId + '"]');
+          if (!card) return;
+          var wrap = card.querySelector('.card-thumb-wrap');
+          if (!wrap) return;
+          // Remove stale overlay if any
+          var old = wrap.querySelector('.card-ann-overlay');
+          if (old) old.remove();
+
+          var natW = ann.nat_w, natH = ann.nat_h;
+          var maskB64 = ann.mask_b64;
+          var cvs = document.createElement('canvas');
+          cvs.className = 'card-ann-overlay';
+          wrap.appendChild(cvs);
+
+          var mImg = new Image();
+          mImg.onload = function() {
+            var W = wrap.clientWidth || wrap.offsetWidth;
+            if (!W) W = 160;
+            cvs.width = W; cvs.height = W;
+            var ctx = cvs.getContext('2d');
+
+            // Replicate object-fit:cover transform so overlay aligns with thumbnail
+            var s = (natW && natH) ? Math.max(W / natW, W / natH) : (W / mImg.naturalWidth > W / mImg.naturalHeight ? W / mImg.naturalWidth : W / mImg.naturalHeight);
+            var rW = (natW || mImg.naturalWidth) * s;
+            var rH = (natH || mImg.naturalHeight) * s;
+            var dx = (W - rW) / 2;
+            var dy = (W - rH) / 2;
+
+            var tmp = document.createElement('canvas');
+            tmp.width = W; tmp.height = W;
+            var t = tmp.getContext('2d');
+            t.fillStyle = 'rgba(255, 50, 50, 0.60)';
+            t.fillRect(0, 0, W, W);
+            t.globalCompositeOperation = 'destination-in';
+            t.drawImage(mImg, dx, dy, rW, rH);
+            ctx.drawImage(tmp, 0, 0);
+          };
+          mImg.src = 'data:image/png;base64,' + maskB64;
+        });
+      })
+      .catch(function() {});
+  }
+
+  // ── Toast ─────────────────────────────────────────────────────────────────────
+  var _toastTimer = null;
+  function showToast(msg, extraCls) {
+    extraCls = extraCls || '';
+    var t = document.getElementById('toast');
+    t.textContent = msg; t.className = 'toast show ' + extraCls;
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(function() { t.className = 'toast'; }, 2200);
+  }
+
+  // ── Dataset management ────────────────────────────────────────────────────────
+  function showDatasetManager() {
+    document.getElementById('datasets-overlay').classList.add('open');
+    _renderRunDirList();
+    _renderDatasetList();
+  }
+  function hideDatasetManager() {
+    document.getElementById('datasets-overlay').classList.remove('open');
+  }
+
+  async function _renderRunDirList() {
+    var list = document.getElementById('run-dir-list');
+    list.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;padding:6px;display:block">Loading…</span>';
+    var data = await (await fetch('/api/survey-run-dirs')).json();
+    var runs = data.runs || [];
+    if (!runs.length) {
+      list.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;padding:6px;display:block">No run directories found in runs/</span>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < runs.length; i++) {
+      var r = runs[i];
+      var badge = r.imported
+        ? '<span style="font-size:0.68rem;background:#22c55e22;color:#22c55e;border:1px solid #22c55e44;border-radius:3px;padding:1px 5px;flex-shrink:0">imported</span>'
+        : '';
+      var thumbs = '';
+      for (var t = 0; t < (r.samples || []).length; t++) {
+        thumbs += '<img src="/api/image?path=' + encodeURIComponent(r.samples[t]) + '" loading="lazy"'
+          + ' style="width:72px;height:54px;object-fit:cover;border-radius:3px;flex-shrink:0;background:var(--surface2)">';
+      }
+      html += '<div class="run-dir-row" onclick="selectRunDir(' + JSON.stringify(r.path).replace(/"/g,'&quot;') + ',' + JSON.stringify(r.name).replace(/"/g,'&quot;') + ')" style="display:flex;flex-direction:column;gap:6px;padding:8px;border-radius:4px;cursor:pointer;border-left:2px solid transparent" title="' + esc(r.path) + '">'
+        + '<div style="display:flex;align-items:center;gap:6px">'
+        +   '<span style="flex:1;font-size:0.85rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.name) + '</span>'
+        +   badge
+        +   '<span style="font-size:0.72rem;color:var(--text-muted);white-space:nowrap">' + fmt(r.frame_count) + ' frames</span>'
+        + '</div>'
+        + (thumbs ? '<div style="display:flex;gap:4px">' + thumbs + '</div>' : '')
+        + '</div>';
+    }
+    list.innerHTML = html;
+  }
+
+  function selectRunDir(path, name) {
+    document.getElementById('dataset-run-dir').value = path;
+    document.getElementById('dataset-name-input').value = '';
+    document.getElementById('dataset-import-status').textContent = '';
+    // Highlight selected row
+    document.querySelectorAll('.run-dir-row').forEach(function(row) {
+      var active = row.getAttribute('title') === path;
+      row.style.background = active ? 'var(--accent)22' : '';
+      row.style.borderLeft = active ? '2px solid var(--accent)' : '2px solid transparent';
+    });
+    document.getElementById('dataset-name-input').focus();
+  }
+
+  async function _renderDatasetList() {
+    var body = document.getElementById('dataset-list-body');
+    body.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem">Loading…</span>';
+    var sources = await (await fetch('/api/sources?mode=survey')).json();
+    if (!sources.length) {
+      body.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem">No survey datasets imported yet.</span>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < sources.length; i++) {
+      var s = sources[i];
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">'
+        + '<span style="flex:1;font-size:0.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(s.name) + '">' + esc(s.name) + '</span>'
+        + '<span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap">' + fmt(s.total) + ' images</span>'
+        + '<button class="btn-sm" style="color:#f87171;border-color:#f8717133;white-space:nowrap" onclick="confirmDeleteDataset(' + JSON.stringify(s.name).replace(/"/g,'&quot;') + ',' + s.total + ')">Delete</button>'
+        + '</div>';
+    }
+    body.innerHTML = html;
+  }
+
+  async function importSurveyFrames() {
+    var runDir = document.getElementById('dataset-run-dir').value.trim();
+    var dsName = document.getElementById('dataset-name-input').value.trim();
+    var status = document.getElementById('dataset-import-status');
+    if (!runDir) { status.textContent = 'Select a run folder above first.'; status.style.color = '#f87171'; return; }
+    status.textContent = 'Importing…'; status.style.color = 'var(--text-muted)';
+    document.getElementById('btn-do-import').disabled = true;
+    try {
+      var resp = await fetch('/api/survey-frames/import', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({run_dir: runDir, dataset_name: dsName, append: true}),
+      });
+      var data = await resp.json();
+      if (!resp.ok) { status.textContent = 'Error: ' + (data.detail || resp.status); status.style.color = '#f87171'; return; }
+      status.textContent = 'Done! Added ' + data.added + ' frames (total: ' + data.total + ')';
+      status.style.color = '#22c55e';
+      document.getElementById('dataset-run-dir').value = '';
+      document.getElementById('dataset-name-input').value = '';
+      _renderRunDirList();
+      _renderDatasetList();
+      if (S.mode === 'survey') { loadSources(); loadImages(); }
+    } catch(e) {
+      status.textContent = 'Network error: ' + e.message;
+      status.style.color = '#f87171';
+    } finally {
+      document.getElementById('btn-do-import').disabled = false;
+    }
+  }
+
+  async function confirmDeleteDataset(name, count) {
+    if (!confirm('Delete dataset "' + name + '" (' + count + ' images)?\n\nThis removes them from the survey manifest but does NOT delete image files.')) return;
+    var resp = await fetch('/api/survey-dataset?name=' + encodeURIComponent(name), {method: 'DELETE'});
+    var data = await resp.json();
+    if (!resp.ok) { showToast('Error: ' + (data.detail || resp.status)); return; }
+    showToast('Deleted ' + data.removed + ' images from "' + name + '"');
+    _renderRunDirList();
+    _renderDatasetList();
+    if (S.mode === 'survey') { loadSources(); loadImages(); }
+  }
+
+  // ── Move images to another dataset ───────────────────────────────────────────
+  function showMoveDataset() {
+    if (S.selected.size === 0) return;
+    document.getElementById('move-dataset-overlay').classList.add('open');
+    document.getElementById('move-count-info').textContent = S.selected.size + ' image(s) selected';
+    document.getElementById('move-new-dataset-name').value = '';
+    _renderMoveDatasetList();
+  }
+  function hideMoveDataset() {
+    document.getElementById('move-dataset-overlay').classList.remove('open');
+  }
+
+  async function _renderMoveDatasetList() {
+    var list = document.getElementById('move-dataset-list');
+    list.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem">Loading…</span>';
+    var sources = await (await fetch('/api/sources?mode=survey')).json();
+    if (!sources.length) { list.innerHTML = ''; return; }
+    var html = '';
+    for (var i = 0; i < sources.length; i++) {
+      var s = sources[i];
+      html += '<button class="btn-sm" style="text-align:left;justify-content:flex-start" onclick="doMoveToDataset(' + JSON.stringify(s.name).replace(/"/g,'&quot;') + ')">'
+        + esc(s.name) + ' <span style="color:var(--text-muted);margin-left:4px">(' + fmt(s.total) + ')</span></button>';
+    }
+    list.innerHTML = html;
+  }
+
+  async function doMoveToDataset(targetName) {
+    var ids = Array.from(S.selected);
+    hideMoveDataset();
+    var resp = await fetch('/api/survey-image/move', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ids: ids, target_dataset: targetName}),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { showToast('Error: ' + (data.detail || resp.status)); return; }
+    showToast('Moved ' + data.moved + ' image(s) to "' + targetName + '"');
+    S.selected.clear();
+    loadSources(); loadImages();
+  }
+
+  async function doMoveToNew() {
+    var name = document.getElementById('move-new-dataset-name').value.trim();
+    if (!name) return;
+    doMoveToDataset(name);
+  }
+
+  // ── Remove images from survey manifest ───────────────────────────────────────
+  async function confirmDeleteSurveyImages() {
+    var ids = Array.from(S.selected);
+    if (!ids.length) return;
+    if (!confirm('Remove ' + ids.length + ' image(s) from the survey manifest?\n\nThis does NOT delete image files.')) return;
+    var resp = await fetch('/api/survey-images/delete', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ids: ids}),
+    });
+    var data = await resp.json();
+    if (!resp.ok) { showToast('Error: ' + (data.detail || resp.status)); return; }
+    showToast('Removed ' + data.removed + ' image(s) from survey manifest');
+    S.selected.clear();
+    loadSources(); loadImages();
+  }
+
+  // ── Util ──────────────────────────────────────────────────────────────────────
+  function fmt(n) { return Number(n).toLocaleString(); }
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>
