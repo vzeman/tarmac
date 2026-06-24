@@ -11,6 +11,7 @@ import '../models/telemetry.dart';
 import '../settings/app_settings.dart';
 import 'camera_service.dart';
 import 'location_service.dart';
+import 'lidar_service.dart';
 import 'motion_service.dart';
 import 'session_repository.dart';
 import 'sidecar_writer.dart';
@@ -28,12 +29,14 @@ class CaptureSessionController extends ChangeNotifier {
   final CameraService cameraService = CameraService();
   final LocationService locationService = LocationService();
   final MotionService motionService = MotionService();
+  final LidarService lidarService = LidarService();
 
   SidecarWriter? _writer;
   StorageTarget? _storageTarget;
   RecordingClock? _clock;
   StreamSubscription<GpsSample>? _gpsSubscription;
   StreamSubscription<ImuSample>? _imuSubscription;
+  StreamSubscription<LidarFrame>? _lidarSubscription;
   Timer? _ticker;
 
   String? _sessionId;
@@ -158,6 +161,7 @@ class CaptureSessionController extends ChangeNotifier {
       await _startNewSegment(index: 1, startUtc: startUtc, startPtsMs: 0);
       await locationService.start(_clock!);
       await motionService.start(_clock!);
+      await lidarService.start(_clock!);
 
       if (settings.keepScreenOn) {
         await WakelockPlus.enable();
@@ -267,6 +271,10 @@ class CaptureSessionController extends ChangeNotifier {
       if (imuSamples % 30 == 0 || isAutoPaused) {
         notifyListeners();
       }
+    });
+
+    _lidarSubscription = lidarService.frames.listen((frame) {
+      _writer?.addLidar(frame);
     });
   }
 
@@ -535,8 +543,11 @@ class CaptureSessionController extends ChangeNotifier {
     await _imuSubscription?.cancel();
     _gpsSubscription = null;
     _imuSubscription = null;
+    await _lidarSubscription?.cancel();
+    _lidarSubscription = null;
     await locationService.stop();
     await motionService.stop();
+    await lidarService.stop();
   }
 
   void _resetLiveSessionState() {
@@ -579,6 +590,7 @@ class CaptureSessionController extends ChangeNotifier {
     unawaited(WakelockPlus.disable());
     unawaited(_writer?.discard());
     unawaited(cameraService.dispose());
+    lidarService.dispose();
     super.dispose();
   }
 }

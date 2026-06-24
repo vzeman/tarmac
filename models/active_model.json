@@ -1,6 +1,8 @@
 {
-  "backbone": "dinov3",
-  "checkpoint": "models/finetuned_dinov3.pt",
+  "backbone": "crack_finetuned_dinov3",
+  "model_name": "facebook/dinov3-vitb16-pretrain-lvd1689m",
+  "checkpoint": "models/crack_finetuned_dinov3.pt",
+  "suffix": "dinov3",
   "crack_segmenter": "dinov3_dense_head",
   "crack_seg_head": "models/crack_seg_head.pt",
   "crack_seg_head_metadata": "models/crack_seg_head.json"

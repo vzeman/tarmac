@@ -9,10 +9,10 @@ import requests
 from tqdm import tqdm
 
 ZENODO_RECORD_ID = "18458458"
-IMAGES_URL = f"https://zenodo.org/api/records/{ZENODO_RECORD_ID}/files/images.zip/content"
-MASKS_URL = f"https://zenodo.org/api/records/{ZENODO_RECORD_ID}/files/masks.zip/content"
-IMAGES_SIZE_BYTES = 274_000_000  # ~262 MB
-MASKS_SIZE_BYTES = 1_100_000     # ~1 MB
+IMAGES_URL = f"https://zenodo.org/api/records/{ZENODO_RECORD_ID}/files/masonry_crack_images.zip/content"
+MASKS_URL = f"https://zenodo.org/api/records/{ZENODO_RECORD_ID}/files/masonry_crack_masks.zip/content"
+IMAGES_SIZE_BYTES = 262_056_968  # ~262 MB
+MASKS_SIZE_BYTES = 1_052_176     # ~1 MB
 ZENODO_URL = f"https://zenodo.org/records/{ZENODO_RECORD_ID}"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 
@@ -51,8 +51,8 @@ def download_masonry_crack(
     archives_dir.mkdir(parents=True, exist_ok=True)
     extracted_dir.mkdir(parents=True, exist_ok=True)
 
-    images_archive = archives_dir / "images.zip"
-    masks_archive = archives_dir / "masks.zip"
+    images_archive = archives_dir / "masonry_crack_images.zip"
+    masks_archive = archives_dir / "masonry_crack_masks.zip"
 
     max_bytes = max_download_mb * 1024 * 1024
 

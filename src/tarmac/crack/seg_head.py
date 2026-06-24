@@ -88,6 +88,14 @@ class SegHeadTrainConfig:
     device: str
     hidden_dim: int
     dropout: float
+    tversky_alpha: float
+    tversky_beta: float
+    tversky_gamma: float
+    bce_weight: float
+    tversky_weight: float
+    cldice_weight: float
+    cldice_iters: int
+    threshold_metric: str
     pos_weight: float
     backbone_model_name: str
     backbone_checkpoint: str
@@ -233,6 +241,16 @@ def train_seg_head(
     image_size: int = DEFAULT_IMAGE_SIZE,
     hidden_dim: int = 256,
     dropout: float = 0.05,
+    tversky_alpha: float = 0.7,
+    tversky_beta: float = 0.3,
+    tversky_gamma: float = 0.75,
+    bce_weight: float = 1.0,
+    tversky_weight: float = 1.0,
+    cldice_weight: float = 0.5,
+    cldice_iters: int = 5,
+    threshold_metric: str = "f0.5",
+    backbone_model: str | None = None,
+    backbone_checkpoint: str | None = None,
 ) -> dict[str, Any]:
     require_mps(device)
     seed_everything(seed)
@@ -245,7 +263,12 @@ def train_seg_head(
     if not train_records or not val_records:
         raise RuntimeError("Segmentation training requires non-empty train and val splits.")
 
-    embedder = _load_active_backbone(image_size=image_size, device=device)
+    embedder, stored_backbone_checkpoint = _resolve_backbone(
+        image_size=image_size,
+        device=device,
+        backbone_model=backbone_model,
+        backbone_checkpoint=backbone_checkpoint,
+    )
     input_dim = int(getattr(embedder.model.config, "hidden_size", 768))
     patch_size = int(getattr(embedder.model.config, "patch_size", DEFAULT_PATCH_SIZE))
     patch_grid = image_size // patch_size
@@ -275,13 +298,22 @@ def train_seg_head(
         device=device,
         hidden_dim=hidden_dim,
         dropout=dropout,
+        tversky_alpha=tversky_alpha,
+        tversky_beta=tversky_beta,
+        tversky_gamma=tversky_gamma,
+        bce_weight=bce_weight,
+        tversky_weight=tversky_weight,
+        cldice_weight=cldice_weight,
+        cldice_iters=cldice_iters,
+        threshold_metric=threshold_metric,
         pos_weight=pos_weight_value,
         backbone_model_name=embedder.model_name,
-        backbone_checkpoint=str(load_active_artifacts().checkpoint_path),
+        backbone_checkpoint=stored_backbone_checkpoint,
     )
 
     start_epoch = 1
     best_epoch = 0
+    best_val_score = -1.0
     best_val_dice = -1.0
     best_threshold = 0.5
     epochs_without_improvement = 0
@@ -295,6 +327,7 @@ def train_seg_head(
         optimizer.load_state_dict(state["optimizer_state_dict"])
         history = list(state.get("history", []))
         best_epoch = int(state.get("best_epoch", 0))
+        best_val_score = float(state.get("best_val_score", -1.0))
         best_val_dice = float(state.get("best_val_dice", -1.0))
         best_threshold = float(state.get("best_threshold", state.get("threshold", 0.5)))
         epochs_without_improvement = int(state.get("epochs_without_improvement", 0))
@@ -326,7 +359,19 @@ def train_seg_head(
                     device=device_obj,
                 )
             logits = head(features)
-            loss = bce(logits, masks) + dice_loss(logits, masks)
+            logits = _resize_logits_to(logits, masks.shape[-2:])
+            loss = (
+                bce_weight * bce(logits, masks)
+                + tversky_weight
+                * focal_tversky_loss(
+                    logits,
+                    masks,
+                    alpha=tversky_alpha,
+                    beta=tversky_beta,
+                    gamma=tversky_gamma,
+                )
+                + cldice_weight * soft_cldice_loss(logits, masks, iters=cldice_iters)
+            )
             if torch.isnan(loss).any():
                 raise RuntimeError("NaN loss while training segmentation head on MPS.")
             optimizer.zero_grad(set_to_none=True)
@@ -344,10 +389,13 @@ def train_seg_head(
             batch_size=batch_size,
             num_workers=num_workers,
             patch_grid=patch_grid,
+            metric=threshold_metric,
         )
+        val_score = _threshold_score(val_metrics, metric=threshold_metric)
         row = {
             "epoch": epoch,
             "loss": float(np.mean(losses)) if losses else 0.0,
+            "val_score": float(val_score),
             "val_iou": float(val_metrics["iou"]),
             "val_dice": float(val_metrics["dice"]),
             "val_precision": float(val_metrics["precision"]),
@@ -355,9 +403,10 @@ def train_seg_head(
             "val_threshold": float(val_threshold),
         }
         history.append(row)
-        improved = float(row["val_dice"]) > best_val_dice
+        improved = val_score > best_val_score
         if improved:
             best_epoch = epoch
+            best_val_score = val_score
             best_val_dice = float(row["val_dice"])
             best_threshold = float(val_threshold)
             epochs_without_improvement = 0
@@ -374,12 +423,21 @@ def train_seg_head(
             "image_size": image_size,
             "patch_size": patch_size,
             "patch_grid": patch_grid,
+            "threshold_metric": threshold_metric,
+            "tversky_alpha": tversky_alpha,
+            "tversky_beta": tversky_beta,
+            "tversky_gamma": tversky_gamma,
+            "bce_weight": bce_weight,
+            "tversky_weight": tversky_weight,
+            "cldice_weight": cldice_weight,
+            "cldice_iters": cldice_iters,
             "model_name": embedder.model_name,
-            "backbone_checkpoint": str(load_active_artifacts().checkpoint_path),
+            "backbone_checkpoint": stored_backbone_checkpoint,
             "config": asdict(config),
             "history": history,
             "epoch": epoch,
             "best_epoch": best_epoch,
+            "best_val_score": best_val_score,
             "best_val_dice": best_val_dice,
             "best_threshold": best_threshold,
             "threshold": float(val_threshold),
@@ -391,8 +449,18 @@ def train_seg_head(
             shutil.copy2(epoch_checkpoint, checkpoint_dir / "best.pt")
         metadata = {
             "config": asdict(config),
+            "image_size": image_size,
+            "threshold_metric": threshold_metric,
+            "tversky_alpha": tversky_alpha,
+            "tversky_beta": tversky_beta,
+            "tversky_gamma": tversky_gamma,
+            "bce_weight": bce_weight,
+            "tversky_weight": tversky_weight,
+            "cldice_weight": cldice_weight,
+            "cldice_iters": cldice_iters,
             "history": history,
             "best_epoch": best_epoch,
+            "best_val_score": best_val_score,
             "best_val_dice": best_val_dice,
             "threshold": best_threshold,
             "checkpoint": str(output_checkpoint),
@@ -441,7 +509,23 @@ def evaluate_seg_head(
     state = torch.load(checkpoint_path, map_location=torch.device("mps"))
     image_size = int(state.get("image_size", DEFAULT_IMAGE_SIZE))
     patch_grid = int(state.get("patch_grid", image_size // int(state.get("patch_size", DEFAULT_PATCH_SIZE))))
-    embedder = _load_active_backbone(image_size=image_size, device=device)
+    threshold_metric = str(state.get("threshold_metric", "dice"))
+    stored_model_name = state.get("model_name") or DINOV3_MODEL
+    stored_backbone = state.get("backbone_checkpoint", "")
+    backbone_ckpt = Path(stored_backbone) if stored_backbone else None
+    if backbone_ckpt is not None and not backbone_ckpt.exists():
+        backbone_ckpt = None
+    embedder = HFBackboneEmbedder(
+        model_name=stored_model_name,
+        checkpoint_path=backbone_ckpt,
+        allow_fallback=True,
+        attn_implementation="eager",
+        device_name="mps",
+    )
+    _set_processor_image_size(embedder.processor, image_size)
+    embedder.model.eval()
+    for parameter in embedder.model.parameters():
+        parameter.requires_grad_(False)
     head = DenseCrackSegHead(
         input_dim=int(state.get("input_dim", getattr(embedder.model.config, "hidden_size", 768))),
         hidden_dim=int(state.get("hidden_dim", 256)),
@@ -459,6 +543,7 @@ def evaluate_seg_head(
         batch_size=batch_size,
         num_workers=num_workers,
         patch_grid=patch_grid,
+        metric=threshold_metric,
     )
     threshold = val_threshold
     split_metrics: dict[str, dict[str, dict[str, float | int]]] = {}
@@ -497,6 +582,7 @@ def evaluate_seg_head(
         "metadata": str(metadata_path),
         "manifest": str(manifest_path),
         "threshold": threshold,
+        "threshold_metric": threshold_metric,
         "val": split_metrics["val"],
         "test": split_metrics["test"],
         "comparison": comparison,
@@ -536,7 +622,17 @@ def predict_crack_mask(
     checkpoint_path: Path = DEFAULT_CHECKPOINT,
     threshold: float | None = None,
     device_name: str = "auto",
+    tiled: bool = False,
+    tile_overlap: float = 0.25,
 ) -> tuple[np.ndarray, np.ndarray]:
+    if tiled:
+        return predict_crack_mask_tiled(
+            image,
+            checkpoint_path=checkpoint_path,
+            threshold=threshold,
+            device_name=device_name,
+            tile_overlap=tile_overlap,
+        )
     bundle = load_learned_segmenter(
         checkpoint_path=checkpoint_path,
         threshold=threshold,
@@ -555,6 +651,62 @@ def predict_crack_mask(
     probs = torch.sigmoid(logits)
     probs = F.interpolate(probs, size=(height, width), mode="bilinear", align_corners=False)
     heatmap = probs.squeeze(0).squeeze(0).detach().cpu().numpy().astype("float32")
+    mask = heatmap >= bundle.threshold
+    return mask.astype(bool), heatmap
+
+
+@torch.inference_mode()
+def predict_crack_mask_tiled(
+    image: Image.Image,
+    *,
+    checkpoint_path: Path = DEFAULT_CHECKPOINT,
+    threshold: float | None = None,
+    device_name: str = "auto",
+    tile_overlap: float = 0.25,
+) -> tuple[np.ndarray, np.ndarray]:
+    bundle = load_learned_segmenter(
+        checkpoint_path=checkpoint_path,
+        threshold=threshold,
+        device_name=device_name,
+    )
+    width, height = image.size
+    tile = bundle.image_size
+    if min(width, height) <= tile:
+        return predict_crack_mask(
+            image,
+            checkpoint_path=checkpoint_path,
+            threshold=threshold,
+            device_name=device_name,
+            tiled=False,
+        )
+
+    overlap = min(max(float(tile_overlap), 0.0), 0.95)
+    stride = max(1, int(tile * (1.0 - overlap)))
+    x_origins = _tile_origins(width, tile, stride)
+    y_origins = _tile_origins(height, tile, stride)
+    window = _hann_window_2d(tile)
+    accum = np.zeros((height, width), dtype=np.float32)
+    weights = np.zeros((height, width), dtype=np.float32)
+    rgb = image.convert("RGB")
+
+    for y0 in y_origins:
+        for x0 in x_origins:
+            crop = rgb.crop((x0, y0, x0 + tile, y0 + tile))
+            pixel_values = bundle.embedder.processor(images=crop, return_tensors="pt")["pixel_values"]
+            features = _dense_patch_features(
+                bundle.embedder,
+                pixel_values,
+                patch_grid=bundle.patch_grid,
+                device=bundle.device,
+            )
+            logits = _resize_logits_to(bundle.head(features), (tile, tile))
+            probs = torch.sigmoid(logits)
+            tile_heatmap = probs.squeeze(0).squeeze(0).detach().cpu().numpy().astype("float32")
+            accum[y0 : y0 + tile, x0 : x0 + tile] += tile_heatmap * window
+            weights[y0 : y0 + tile, x0 : x0 + tile] += window
+
+    heatmap = accum / np.maximum(weights, 1e-6)
+    heatmap = heatmap.astype("float32")
     mask = heatmap >= bundle.threshold
     return mask.astype(bool), heatmap
 
@@ -664,6 +816,12 @@ def evaluate_classical_segmenter(records: list[SegRecord], *, image_size: int = 
     return metrics
 
 
+def _resize_logits_to(logits: torch.Tensor, size: tuple[int, int]) -> torch.Tensor:
+    if tuple(logits.shape[-2:]) != tuple(size):
+        logits = F.interpolate(logits, size=size, mode="bilinear", align_corners=False)
+    return logits
+
+
 def dice_loss(logits: torch.Tensor, targets: torch.Tensor, eps: float = 1.0) -> torch.Tensor:
     probs = torch.sigmoid(logits)
     dims = tuple(range(1, probs.ndim))
@@ -671,6 +829,67 @@ def dice_loss(logits: torch.Tensor, targets: torch.Tensor, eps: float = 1.0) -> 
     denominator = probs.sum(dim=dims) + targets.sum(dim=dims)
     dice = (2.0 * intersection + eps) / (denominator + eps)
     return 1.0 - dice.mean()
+
+
+def focal_tversky_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    *,
+    alpha: float = 0.7,
+    beta: float = 0.3,
+    gamma: float = 0.75,
+    eps: float = 1.0,
+) -> torch.Tensor:
+    # alpha weights false positives, beta weights false negatives.
+    # alpha > beta penalizes FP more and leans precision.
+    probs = torch.sigmoid(logits)
+    dims = tuple(range(1, probs.ndim))
+    tp = (probs * targets).sum(dim=dims)
+    fp = (probs * (1.0 - targets)).sum(dim=dims)
+    fn = ((1.0 - probs) * targets).sum(dim=dims)
+    tversky = (tp + eps) / (tp + alpha * fp + beta * fn + eps)
+    return ((1.0 - tversky) ** gamma).mean()
+
+
+def soft_cldice_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    *,
+    iters: int = 5,
+    smooth: float = 1.0,
+) -> torch.Tensor:
+    # Soft centerline Dice for thin tubular structures.
+    probs = torch.sigmoid(logits)
+    skel_pred = _soft_skeleton(probs, iters=iters)
+    skel_true = _soft_skeleton(targets, iters=iters)
+    dims = tuple(range(1, probs.ndim))
+    tprec = ((skel_pred * targets).sum(dim=dims) + smooth) / (skel_pred.sum(dim=dims) + smooth)
+    tsens = ((skel_true * probs).sum(dim=dims) + smooth) / (skel_true.sum(dim=dims) + smooth)
+    cldice = 2.0 * (tprec * tsens) / (tprec + tsens + 1e-8)
+    return (1.0 - cldice).mean()
+
+
+def _soft_erode(x: torch.Tensor) -> torch.Tensor:
+    return -F.max_pool2d(-x, kernel_size=3, stride=1, padding=1)
+
+
+def _soft_dilate(x: torch.Tensor) -> torch.Tensor:
+    return F.max_pool2d(x, kernel_size=3, stride=1, padding=1)
+
+
+def _soft_open(x: torch.Tensor) -> torch.Tensor:
+    return _soft_dilate(_soft_erode(x))
+
+
+def _soft_skeleton(x: torch.Tensor, *, iters: int = 5) -> torch.Tensor:
+    x1 = _soft_open(x)
+    skel = F.relu(x - x1)
+    for _ in range(iters):
+        x = _soft_erode(x)
+        x1 = _soft_open(x)
+        delta = F.relu(x - x1)
+        skel = skel + F.relu(delta - skel * delta)
+    return skel
 
 
 def _upsample_block(in_channels: int, out_channels: int) -> nn.Sequential:
@@ -716,6 +935,37 @@ def _load_active_backbone(*, image_size: int, device: str, require_accelerator: 
     for parameter in embedder.model.parameters():
         parameter.requires_grad_(False)
     return embedder
+
+
+def _resolve_backbone(
+    *,
+    image_size: int,
+    device: str,
+    backbone_model: str | None = None,
+    backbone_checkpoint: str | None = None,
+) -> tuple[HFBackboneEmbedder, str]:
+    if not backbone_model:
+        embedder = _load_active_backbone(image_size=image_size, device=device)
+        return embedder, str(load_active_artifacts().checkpoint_path)
+
+    require_mps(device)
+    ckpt = Path(backbone_checkpoint) if backbone_checkpoint else None
+    if ckpt is not None and not ckpt.exists():
+        raise FileNotFoundError(f"--backbone-checkpoint not found: {ckpt}")
+    embedder = HFBackboneEmbedder(
+        model_name=backbone_model,
+        checkpoint_path=ckpt,
+        allow_fallback=False,
+        attn_implementation="eager",
+        device_name="mps",
+    )
+    if embedder.device.type != "mps":
+        raise RuntimeError(f"Dense crack segmentation requires MPS; got {embedder.device.type}.")
+    _set_processor_image_size(embedder.processor, image_size)
+    embedder.model.eval()
+    for parameter in embedder.model.parameters():
+        parameter.requires_grad_(False)
+    return embedder, (str(ckpt) if ckpt is not None else "")
 
 
 def _set_processor_image_size(processor: Any, image_size: int) -> None:
@@ -775,6 +1025,7 @@ def _evaluate_head_loader(
         masks = batch["mask"].to(device)
         features = _dense_patch_features(embedder, batch["pixel_values"], patch_grid=patch_grid, device=device)
         logits = head(features)
+        logits = _resize_logits_to(logits, masks.shape[-2:])
         pred = logits >= logit_threshold
         stats.update(pred.detach().cpu(), masks.detach().cpu() > 0.5)
     return stats.metrics()
@@ -828,6 +1079,7 @@ def _choose_threshold(
     batch_size: int,
     num_workers: int,
     patch_grid: int,
+    metric: str = "dice",
 ) -> tuple[float, dict[str, float | int]]:
     if not records:
         return 0.5, {}
@@ -845,20 +1097,56 @@ def _choose_threshold(
         for batch in tqdm(loader, desc="Choosing seg threshold", unit="batch"):
             masks = batch["mask"].to("mps") > 0.5
             features = _dense_patch_features(embedder, batch["pixel_values"], patch_grid=patch_grid, device=torch.device("mps"))
-            probs = torch.sigmoid(head(features))
+            logits = _resize_logits_to(head(features), masks.shape[-2:])
+            probs = torch.sigmoid(logits)
             for threshold, stats in stats_by_threshold.items():
                 stats.update((probs >= threshold).detach().cpu(), masks.detach().cpu())
     best_threshold = 0.5
     best_metrics: dict[str, float | int] = {}
-    best_dice = -1.0
+    best_score = -1.0
     for threshold, stats in stats_by_threshold.items():
         metrics = stats.metrics()
-        if float(metrics["dice"]) > best_dice:
-            best_dice = float(metrics["dice"])
+        score = _threshold_score(metrics, metric=metric)
+        if score > best_score:
+            best_score = score
             best_threshold = threshold
             best_metrics = metrics
     best_metrics["count"] = len(records)
     return best_threshold, best_metrics
+
+
+def fbeta(precision: float, recall: float, beta: float) -> float:
+    beta_sq = beta * beta
+    denominator = beta_sq * precision + recall
+    if denominator <= 0.0:
+        return 0.0
+    return float((1.0 + beta_sq) * precision * recall / denominator)
+
+
+def _threshold_score(metrics: dict[str, float | int], *, metric: str) -> float:
+    normalized = metric.lower()
+    if normalized == "dice":
+        return float(metrics["dice"])
+    if normalized == "iou":
+        return float(metrics["iou"])
+    if normalized == "f0.5":
+        return fbeta(float(metrics["precision"]), float(metrics["recall"]), 0.5)
+    raise ValueError(f"Unsupported threshold metric: {metric}")
+
+
+def _tile_origins(size: int, tile: int, stride: int) -> list[int]:
+    origins = list(range(0, max(size - tile, 0) + 1, stride))
+    final = size - tile
+    if not origins or origins[-1] != final:
+        origins.append(final)
+    return origins
+
+
+def _hann_window_2d(tile: int) -> np.ndarray:
+    one_d = np.hanning(tile).astype(np.float32)
+    one_d = np.maximum(one_d, 1e-3)
+    window = np.outer(one_d, one_d).astype(np.float32)
+    return window / float(window.max())
 
 
 def _augment_pair(image: Image.Image, mask: Image.Image) -> tuple[Image.Image, Image.Image]:
@@ -1007,7 +1295,7 @@ Default for `tarmac crack-measure` and `tarmac analyze --crack-segmentation`: `d
 
 The learned model uses the active fine-tuned DINOv3 ViT-B/16 backbone frozen at 512 px input resolution. The 32x32 patch-token grid is decoded by a lightweight convolutional upsampler to a full-resolution crack logit map. The classical Frangi/Sato/black-hat method remains the fallback only when the learned checkpoint is absent.
 
-Chosen threshold: `{result["threshold"]:.3f}` (max Dice on validation).
+Chosen threshold: `{result["threshold"]:.3f}` (max {result.get("threshold_metric", "dice")} on validation).
 
 ## Dense-Head Metrics
 

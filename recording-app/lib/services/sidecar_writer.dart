@@ -30,9 +30,12 @@ class SidecarWriter {
   late final File _imuTempFile;
   IOSink? _gpsSink;
   IOSink? _imuSink;
+  late final File _lidarTempFile;
+  IOSink? _lidarSink;
 
   int gpsSampleCount = 0;
   int imuSampleCount = 0;
+  int lidarFrameCount = 0;
   GpsSample? firstGps;
   GpsSample? lastGps;
 
@@ -88,6 +91,18 @@ class SidecarWriter {
     imuSampleCount += 1;
     sink.writeln(jsonEncode(_relativeImu(sample).toJson()));
     if (imuSampleCount % 240 == 0) {
+      unawaited(sink.flush());
+    }
+  }
+
+  void addLidar(LidarFrame frame) {
+    final sink = _lidarSink;
+    if (sink == null) return;
+    lidarFrameCount += 1;
+    final relative = frame.toJson();
+    relative['pts_ms'] = math.max(0, frame.ptsMs - segmentStartPtsMs);
+    sink.writeln(jsonEncode(relative));
+    if (lidarFrameCount % 100 == 0) {
       unawaited(sink.flush());
     }
   }
@@ -195,6 +210,10 @@ class SidecarWriter {
     );
     _gpsSink = _gpsTempFile.openWrite(mode: FileMode.writeOnlyAppend);
     _imuSink = _imuTempFile.openWrite(mode: FileMode.writeOnlyAppend);
+    _lidarTempFile = File(
+      '${sessionDirectory.path}/$_segmentBase.lidar.tmp.ndjson',
+    );
+    _lidarSink = _lidarTempFile.openWrite(mode: FileMode.writeOnlyAppend);
   }
 
   GpsSample _relativeGps(GpsSample sample) {
@@ -228,8 +247,10 @@ class SidecarWriter {
   Future<void> _closeSinks() async {
     final gps = _gpsSink;
     final imu = _imuSink;
+    final lidar = _lidarSink;
     _gpsSink = null;
     _imuSink = null;
+    _lidarSink = null;
     if (gps != null) {
       await gps.flush();
       await gps.close();
@@ -237,6 +258,10 @@ class SidecarWriter {
     if (imu != null) {
       await imu.flush();
       await imu.close();
+    }
+    if (lidar != null) {
+      await lidar.flush();
+      await lidar.close();
     }
   }
 
@@ -308,6 +333,10 @@ class SidecarWriter {
     sink.writeln('  ],');
     sink.writeln('  "imu": [');
     await _copyNdjsonArray(sink, _imuTempFile);
+    sink.writeln();
+    sink.writeln('  ],');
+    sink.writeln('  "lidar": [');
+    await _copyNdjsonArray(sink, _lidarTempFile);
     sink.writeln();
     sink.writeln('  ]');
     sink.writeln('}');
@@ -531,7 +560,7 @@ class SidecarWriter {
   }
 
   Future<void> _deleteTempFiles() async {
-    for (final file in [_gpsTempFile, _imuTempFile]) {
+    for (final file in [_gpsTempFile, _imuTempFile, _lidarTempFile]) {
       if (await file.exists()) {
         await file.delete();
       }

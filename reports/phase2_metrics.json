@@ -1,52 +1,52 @@
 {
   "requested_model": "facebook/dinov3-vitb16-pretrain-lvd1689m",
-  "backbone": "dinov2",
-  "model_name": "facebook/dinov2-base",
+  "backbone": "dinov3",
+  "model_name": "facebook/dinov3-vitb16-pretrain-lvd1689m",
   "device": "mps",
   "chosen_k": 5,
   "knn": {
     "surface_type": {
       "val": {
-        "accuracy": 0.7757731958762887,
-        "macro_f1": 0.6713375432156441
+        "accuracy": 0.7963917525773195,
+        "macro_f1": 0.6810222589686478
       },
       "test": {
-        "accuracy": 0.8195876288659794,
-        "macro_f1": 0.6734489432136491
+        "accuracy": 0.8298969072164949,
+        "macro_f1": 0.6708255606336102
       },
       "val_test": {
-        "accuracy": 0.7976804123711341,
-        "macro_f1": 0.6739661795640037
+        "accuracy": 0.8131443298969072,
+        "macro_f1": 0.6798839300740769
       }
     },
     "quality": {
       "val": {
-        "accuracy": 0.4690721649484536,
-        "macro_f1": 0.46020260277766933,
-        "mae": 0.6185567010309279,
-        "off_by_one_accuracy": 0.9123711340206185
+        "accuracy": 0.4793814432989691,
+        "macro_f1": 0.48162134949136287,
+        "mae": 0.5927835051546392,
+        "off_by_one_accuracy": 0.9304123711340206
       },
       "test": {
-        "accuracy": 0.47164948453608246,
-        "macro_f1": 0.46945988306565223,
-        "mae": 0.6288659793814433,
-        "off_by_one_accuracy": 0.9097938144329897
+        "accuracy": 0.5,
+        "macro_f1": 0.48622704004817824,
+        "mae": 0.5567010309278351,
+        "off_by_one_accuracy": 0.9484536082474226
       },
       "val_test": {
-        "accuracy": 0.47036082474226804,
-        "macro_f1": 0.46483936378387847,
-        "mae": 0.6237113402061856,
-        "off_by_one_accuracy": 0.9110824742268041
+        "accuracy": 0.4896907216494845,
+        "macro_f1": 0.48495789179497173,
+        "mae": 0.5747422680412371,
+        "off_by_one_accuracy": 0.9394329896907216
       }
     }
   },
   "silhouette": {
-    "surface_type": 0.03428513556718826,
-    "surface_type_quality": -0.028323881328105927
+    "surface_type": 0.04122104495763779,
+    "surface_type_quality": -0.02384326420724392
   },
   "cluster_purity": {
-    "surface_type": 0.49780749835562377,
-    "quality": 0.3967331725498794,
-    "surface_type_quality": 0.23470730103047577
+    "surface_type": 0.5685156763867573,
+    "quality": 0.4104363078272309,
+    "surface_type_quality": 0.26364832273624206
   }
 }

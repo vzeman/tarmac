@@ -68,11 +68,22 @@ class SimSiamTileDataset(Dataset[dict[str, torch.Tensor]]):
         return len(self.frame)
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
-        row = self.frame.iloc[index]
-        with Image.open(row["image_path"]) as image:
-            rgb = image.convert("RGB")
-            view_a = self.transform(rgb)
-            view_b = self.transform(rgb)
+        max_attempts = min(10, len(self.frame))
+        for offset in range(max_attempts):
+            candidate_index = (index + offset) % len(self.frame)
+            row = self.frame.iloc[candidate_index]
+            try:
+                with Image.open(row["image_path"]) as image:
+                    rgb = image.convert("RGB")
+                    view_a = self.transform(rgb)
+                    view_b = self.transform(rgb)
+                return {"view_a": view_a, "view_b": view_b}
+            except Exception:
+                continue
+
+        gray = Image.new("RGB", (224, 224), color=(128, 128, 128))
+        view_a = self.transform(gray)
+        view_b = self.transform(gray)
         return {"view_a": view_a, "view_b": view_b}
 
 
@@ -230,7 +241,7 @@ def build_road_tile_manifest(
 def train_simsiam_domain_adapt(
     tile_manifest_path: Path,
     *,
-    initial_checkpoint: Path,
+    initial_checkpoint: Path | None = None,
     output_checkpoint: Path = Path("models/checkpoints/domain_adapt/domain_adapted.pt"),
     output_metadata: Path = Path("models/checkpoints/domain_adapt/domain_adapted.json"),
     checkpoint_dir: Path = Path("models/checkpoints/domain_adapt"),
@@ -249,7 +260,7 @@ def train_simsiam_domain_adapt(
     attn_implementation: str = "eager",
 ) -> dict[str, Any]:
     _seed_everything(seed)
-    if not initial_checkpoint.exists():
+    if initial_checkpoint is not None and not initial_checkpoint.exists():
         raise FileNotFoundError(f"Initial checkpoint does not exist: {initial_checkpoint}")
     tile_frame = pd.read_parquet(tile_manifest_path)
     if tile_frame.empty:
@@ -301,7 +312,7 @@ def train_simsiam_domain_adapt(
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
     config = SimSiamConfig(
         tile_manifest_path=str(tile_manifest_path),
-        initial_checkpoint=str(initial_checkpoint),
+        initial_checkpoint=str(initial_checkpoint) if initial_checkpoint is not None else "",
         output_checkpoint=str(output_checkpoint),
         output_metadata=str(output_metadata),
         model_name=embedder.model_name,

@@ -148,3 +148,104 @@ double? _readDouble(Object? value) {
   }
   return null;
 }
+
+class LidarFrame {
+  const LidarFrame({
+    required this.utcMs,
+    required this.ptsMs,
+    required this.pose,
+    required this.fx,
+    required this.fy,
+    required this.cx,
+    required this.cy,
+    required this.imgW,
+    required this.imgH,
+    required this.roughness,
+    required this.vertAccelMps2,
+    required this.tracking,
+    this.depthF32,
+    this.depthW,
+    this.depthH,
+  });
+
+  // Wall-clock timestamp and presentation timestamp (relative to segment start).
+  final int utcMs;
+  final int ptsMs;
+
+  // ARKit camera-to-world 4×4 transform, column-major (16 doubles).
+  final List<double> pose;
+
+  // Camera intrinsics from ARKit.
+  final double fx;
+  final double fy;
+  final double cx;
+  final double cy;
+  final int imgW;
+  final int imgH;
+
+  // Std-dev of centre depth patch (metres). 0 when no LiDAR.
+  final double roughness;
+
+  // Gravity-corrected vertical acceleration in m/s² (world Y-up).
+  // Positive = upward jolt (landing after pothole), negative = dropping in.
+  final double vertAccelMps2;
+
+  // "normal" | "limited:*" | "notAvailable"
+  final String tracking;
+
+  // Optional LiDAR depth: base64 Float32 array, row-major.
+  final String? depthF32;
+  final int? depthW;
+  final int? depthH;
+
+  factory LidarFrame.fromNative(Map<String, dynamic> m) {
+    final rawPose = m['pose'] as List<dynamic>;
+    return LidarFrame(
+      utcMs: (m['utc_ms'] as num).toInt(),
+      ptsMs: (m['pts_ms'] as num).toInt(),
+      pose: rawPose.map((v) => (v as num).toDouble()).toList(),
+      fx: (m['fx'] as num).toDouble(),
+      fy: (m['fy'] as num).toDouble(),
+      cx: (m['cx'] as num).toDouble(),
+      cy: (m['cy'] as num).toDouble(),
+      imgW: (m['img_w'] as num).toInt(),
+      imgH: (m['img_h'] as num).toInt(),
+      roughness: (m['roughness'] as num?)?.toDouble() ?? 0.0,
+      vertAccelMps2: (m['vert_accel'] as num?)?.toDouble() ?? 0.0,
+      tracking: (m['tracking'] as String?) ?? 'unknown',
+      depthF32: m['depth_f32'] as String?,
+      depthW: (m['depth_w'] as num?)?.toInt(),
+      depthH: (m['depth_h'] as num?)?.toInt(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'utc_ms': utcMs,
+    'pts_ms': ptsMs,
+    'pose': pose,
+    'fx': fx,
+    'fy': fy,
+    'cx': cx,
+    'cy': cy,
+    'img_w': imgW,
+    'img_h': imgH,
+    'roughness': roughness,
+    'vert_accel': vertAccelMps2,
+    'tracking': tracking,
+    if (depthF32 != null) 'depth_f32': depthF32,
+    if (depthW != null) 'depth_w': depthW,
+    if (depthH != null) 'depth_h': depthH,
+  };
+}
+
+class LidarPoint {
+  const LidarPoint({
+    required this.ptsMs,
+    required this.roughness,
+    required this.vertAccelMps2,
+  });
+
+  final int ptsMs;
+  final double roughness;
+  final double vertAccelMps2;
+}
