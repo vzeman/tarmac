@@ -14,7 +14,6 @@ import UniformTypeIdentifiers
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
     if let controller = window?.rootViewController as? FlutterViewController {
-      LidarPlugin.register(with: controller.binaryMessenger)
       let storageChannel = FlutterMethodChannel(
         name: "roadsurvey_recorder/storage",
         binaryMessenger: controller.binaryMessenger

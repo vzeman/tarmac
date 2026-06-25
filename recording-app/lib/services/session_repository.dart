@@ -169,38 +169,6 @@ class SessionRepository {
     return _fallbackPoints(summary);
   }
 
-  Future<List<LidarPoint>> loadLidarPoints(SessionSummary summary) async {
-    final points = <LidarPoint>[];
-    var segmentOffset = 0;
-    for (final segment in summary.effectiveSegments) {
-      final raw = await _readSessionText(summary, segment.sidecarPath);
-      if (raw == null) {
-        segmentOffset += segment.durationMs;
-        continue;
-      }
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is! Map<String, dynamic>) continue;
-        final lidar = decoded['lidar'];
-        if (lidar is! List || lidar.isEmpty) continue;
-        for (final item in lidar) {
-          if (item is! Map<String, dynamic>) continue;
-          final ptsMs = _readInt(item['pts_ms']);
-          final roughness = _readDouble(item['roughness']);
-          if (ptsMs == null || roughness == null) continue;
-          points.add(LidarPoint(
-            ptsMs: segmentOffset + ptsMs,
-            roughness: roughness,
-            vertAccelMps2: _readDouble(item['vert_accel']) ?? 0.0,
-          ));
-        }
-      } catch (_) {}
-      segmentOffset += segment.durationMs;
-    }
-    points.sort((a, b) => a.ptsMs.compareTo(b.ptsMs));
-    return points;
-  }
-
   Future<String> resolveSessionArtifactPath(
     SessionSummary summary,
     String storedPath,
