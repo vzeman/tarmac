@@ -119,20 +119,26 @@ def find_find_crack_pairs(
 def _find_pairs(root: Path) -> list[tuple[Path, Path]]:
     if not root.exists():
         return []
-    # FIND layout: data/{split}/fused/*.png (images), data/{split}/GT/*.png (masks)
+    # FIND layout: data/img/{fused,intensity,filtered,range}/*.bmp  +  data/lbs/*.bmp
+    # Prefer fused modality; lbs/ contains binary crack masks.
     pairs: list[tuple[Path, Path]] = []
-    for gt_file in sorted(root.rglob("*")):
-        if not gt_file.is_file() or gt_file.suffix.lower() not in IMAGE_EXTENSIONS:
+    for data_dir in root.rglob("lbs"):
+        if not data_dir.is_dir():
             continue
-        parts_lower = [p.lower() for p in gt_file.parts]
-        if not any(p in ("gt", "mask", "label", "groundtruth", "ground_truth") for p in parts_lower):
-            continue
-        # Prefer fused sibling, fall back to RGB
-        for modality in ("fused", "RGB", "rgb"):
-            candidate = gt_file.parent.parent / modality / gt_file.name
-            if candidate.exists():
-                pairs.append((candidate, gt_file))
+        img_base = data_dir.parent / "img"
+        for modality in ("fused", "intensity", "filtered", "range"):
+            img_dir = img_base / modality
+            if img_dir.exists():
                 break
+        else:
+            continue
+        img_by_stem = {f.stem: f for f in img_dir.iterdir() if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS}
+        for mask_file in sorted(data_dir.iterdir()):
+            if not mask_file.is_file() or mask_file.suffix.lower() not in IMAGE_EXTENSIONS:
+                continue
+            img_file = img_by_stem.get(mask_file.stem)
+            if img_file:
+                pairs.append((img_file, mask_file))
     return sorted(pairs, key=lambda p: str(p[0]))
 
 

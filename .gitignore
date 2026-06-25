@@ -21,3 +21,4 @@ reports/*.html
 
 # Recorded survey sessions copied from devices (large media)
 recordings/
+.claude/worktrees/

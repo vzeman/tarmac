@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:intl/intl.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:latlong2/latlong.dart' hide Path;
 import 'package:share_plus/share_plus.dart';
 
 import '../models/session_summary.dart';
@@ -486,10 +486,13 @@ class SessionDetailScreen extends StatelessWidget {
             final mapHeight = constraints.maxWidth > constraints.maxHeight
                 ? 250.0
                 : 320.0;
-            return FutureBuilder<List<TrackPoint>>(
-              future: sessionRepository.loadTrackPoints(session),
+            return FutureBuilder<_SessionDetailData>(
+              future: sessionRepository
+                  .loadTrackPoints(session)
+                  .then(_SessionDetailData.new),
               builder: (context, snapshot) {
-                final points = snapshot.data ?? const <TrackPoint>[];
+                final points =
+                    snapshot.data?.trackPoints ?? const <TrackPoint>[];
                 return ListView(
                   padding: EdgeInsets.fromLTRB(
                     horizontalPadding,
@@ -1134,4 +1137,9 @@ String _formatBytes(int bytes) {
     return '${(bytes / gb).toStringAsFixed(1)} GB';
   }
   return '${(bytes / mb).toStringAsFixed(1)} MB';
+}
+
+class _SessionDetailData {
+  const _SessionDetailData(this.trackPoints);
+  final List<TrackPoint> trackPoints;
 }

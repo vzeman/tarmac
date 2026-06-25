@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,7 +23,6 @@ LOGGER = logging.getLogger(__name__)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 DINOV3_MODEL = "facebook/dinov3-vitb16-pretrain-lvd1689m"
-DINOV2_MODEL = "facebook/dinov2-base"
 
 
 @dataclass(frozen=True)
@@ -134,7 +132,7 @@ class HFBackboneEmbedder:
             self.model.to(self.device)
         self.model.eval()
         self.input_size = _processor_input_size(self.processor)
-        self.backbone = "dinov3" if "dinov3" in self.model_name else "dinov2"
+        self.backbone = "dinov3"
 
     @property
     def info(self) -> BackboneInfo:
@@ -157,8 +155,6 @@ class HFBackboneEmbedder:
         checkpoint: dict[str, Any] | None,
     ) -> tuple[Any, Any, str]:
         candidates = [model_name]
-        if allow_fallback and model_name != DINOV2_MODEL:
-            candidates.append(DINOV2_MODEL)
         for candidate in candidates:
             try:
                 processor = AutoImageProcessor.from_pretrained(candidate)
@@ -166,33 +162,16 @@ class HFBackboneEmbedder:
                 if attn_implementation:
                     kwargs["attn_implementation"] = attn_implementation
                 model = AutoModel.from_pretrained(candidate, **kwargs)
-                if candidate != model_name:
-                    LOGGER.warning("Using fallback backbone %s.", candidate)
                 return processor, model, candidate
             except Exception as exc:
-                status = _exception_status(exc)
-                if allow_fallback and candidate == DINOV3_MODEL and status in {401, 403}:
-                    LOGGER.warning(
-                        "DINOv3 download failed with HTTP %s. The model is gated; "
-                        "falling back automatically to %s.",
-                        status,
-                        DINOV2_MODEL,
-                    )
-                    continue
-                if allow_fallback and candidate == model_name and candidate != DINOV2_MODEL:
-                    LOGGER.warning(
-                        "Failed to load %s (%s). Falling back automatically to %s.",
-                        candidate,
-                        exc,
-                        DINOV2_MODEL,
-                    )
-                    continue
                 if _is_gated_dinov3_local_checkpoint(candidate, checkpoint):
                     LOGGER.warning("Using local DINOv3 ViT-B/16 architecture from checkpoint metadata.")
                     processor, model = _local_dinov3_vit_base()
                     return processor, model, candidate
-                raise
-        raise RuntimeError("Could not load any embedding backbone.")
+                raise RuntimeError(
+                    f"Failed to load backbone {model_name}; DINOv3 is the only supported model."
+                ) from exc
+        raise RuntimeError(f"Failed to load backbone {model_name}; DINOv3 is the only supported model.")
 
     @torch.inference_mode()
     def embed_pixel_values(self, pixel_values: torch.Tensor) -> torch.Tensor:
@@ -319,19 +298,6 @@ def _preferred_device(device_name: str = "auto") -> torch.device:
     if torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
-
-
-def _exception_status(exc: Exception) -> int | None:
-    current: BaseException | None = exc
-    while current is not None:
-        status = getattr(current, "response", None)
-        if status is not None and getattr(status, "status_code", None) is not None:
-            return int(status.status_code)
-        code = getattr(current, "status_code", None)
-        if code is not None and not (isinstance(code, float) and math.isnan(code)):
-            return int(code)
-        current = current.__cause__ or current.__context__
-    return None
 
 
 def _load_checkpoint_metadata(checkpoint_path: Path | None) -> dict[str, Any] | None:

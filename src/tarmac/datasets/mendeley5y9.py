@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,12 +69,15 @@ def download_mendeley5y9(output_dir: Path = Path("data/raw/mendeley5y9")) -> Men
         destination = archives_dir / file_info.filename
         _stream_download(file_info.download_url, destination, file_info.size or None)
         downloaded.append(destination)
-        if destination.suffix.lower() == ".zip":
-            marker = extracted_dir / f".{destination.stem}.extracted"
-            if not marker.exists():
+        ext = destination.suffix.lower()
+        marker = extracted_dir / f".{destination.stem}.extracted"
+        if not marker.exists():
+            if ext == ".zip":
                 with ZipFile(destination) as archive:
                     archive.extractall(extracted_dir)
-                marker.write_text("ok\n")
+            elif ext == ".rar":
+                _extract_rar(destination, extracted_dir)
+            marker.write_text("ok\n")
 
     positive_count = _count_images(_find_class_dir(extracted_dir, ("Positive", "positive", "crack", "cracked")))
     negative_count = _count_images(_find_class_dir(extracted_dir, ("Negative", "negative", "noncrack", "no_crack")))
@@ -137,6 +141,20 @@ def _list_images(directory: Path | None) -> list[Path]:
     if directory is None or not directory.exists():
         return []
     return sorted(p for p in directory.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS)
+
+
+def _extract_rar(archive_path: Path, output_dir: Path) -> None:
+    extractor = shutil.which("bsdtar") or shutil.which("unrar") or shutil.which("7z")
+    if extractor is None:
+        raise RuntimeError(f"No RAR extractor found (need bsdtar, unrar, or 7z): {archive_path}")
+    name = Path(extractor).name
+    if name == "bsdtar":
+        cmd = ["bsdtar", "-x", "-f", str(archive_path), "-C", str(output_dir)]
+    elif name == "unrar":
+        cmd = ["unrar", "x", "-y", str(archive_path), str(output_dir) + "/"]
+    else:
+        cmd = ["7z", "x", str(archive_path), f"-o{output_dir}", "-y"]
+    subprocess.run(cmd, check=True)
 
 
 def _stream_download(url: str, destination: Path, expected_size: int | None = None) -> None:

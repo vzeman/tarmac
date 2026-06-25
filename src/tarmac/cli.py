@@ -1,19 +1,26 @@
 from __future__ import annotations
 
 import logging
+from enum import Enum
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-DINOV3_MODEL = "facebook/dinov3-vitb16-pretrain-lvd1689m"
+from tarmac.embedding.embedder import DINOV3_MODEL
 
 app = typer.Typer(no_args_is_help=True)
 download_app = typer.Typer(no_args_is_help=True)
 app.add_typer(download_app, name="download")
 console = Console()
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+
+class ThresholdMetric(str, Enum):
+    dice = "dice"
+    iou = "iou"
+    f05 = "f0.5"
 
 
 @download_app.command("streetsurfacevis")
@@ -727,6 +734,70 @@ def domain_adapt(
     )
 
 
+@app.command("ssl-pretrain")
+def ssl_pretrain(
+    manifest: Path = typer.Option(
+        Path("data/processed/label_scatter_2d.parquet"),
+        "--manifest",
+        help="image-path manifest",
+    ),
+    initial_checkpoint: Path | None = typer.Option(
+        None,
+        "--initial-checkpoint",
+        help="optional warm-start; omit for base dinov3",
+    ),
+    model_name: str = typer.Option(
+        "facebook/dinov3-vitb16-pretrain-lvd1689m",
+        "--model-name",
+    ),
+    output_checkpoint: Path = typer.Option(
+        Path("models/finetuned_dinov3.pt"),
+        "--output-checkpoint",
+    ),
+    output_metadata: Path = typer.Option(
+        Path("models/finetuned_dinov3.json"),
+        "--output-metadata",
+    ),
+    checkpoint_dir: Path = typer.Option(
+        Path("models/checkpoints/dinov3_ssl"),
+        "--checkpoint-dir",
+    ),
+    epochs: int = typer.Option(2, "--epochs"),
+    batch_size: int = typer.Option(16, "--batch-size"),
+    effective_batch_size: int = typer.Option(128, "--effective-batch-size"),
+    backbone_lr: float = typer.Option(1e-5, "--backbone-lr"),
+    head_lr: float = typer.Option(1e-4, "--head-lr"),
+    unfrozen_blocks: int = typer.Option(4, "--unfrozen-blocks"),
+    max_tiles: int = typer.Option(400000, "--max-tiles"),
+    num_workers: int = typer.Option(0, "--num-workers"),
+    device: str = typer.Option("mps", "--device"),
+) -> None:
+    """Self-supervised SimSiam pretraining of the DINOv3 backbone on an unlabeled image manifest."""
+    from tarmac.train.domain_adapt import train_simsiam_domain_adapt
+
+    result = train_simsiam_domain_adapt(
+        manifest,
+        initial_checkpoint=(initial_checkpoint or None),
+        output_checkpoint=output_checkpoint,
+        output_metadata=output_metadata,
+        checkpoint_dir=checkpoint_dir,
+        model_name=model_name,
+        epochs=epochs,
+        batch_size=batch_size,
+        effective_batch_size=effective_batch_size,
+        backbone_lr=backbone_lr,
+        head_lr=head_lr,
+        unfrozen_blocks=unfrozen_blocks,
+        max_tiles=max_tiles,
+        num_workers=num_workers,
+        device_name=device,
+    )
+    console.print(
+        f"SSL pretrain complete: checkpoint={result['checkpoint']} "
+        f"epochs_trained={result['epochs_trained']} tiles_used={result['tiles_used']}"
+    )
+
+
 @app.command("train-crack-backbone")
 def train_crack_backbone_cmd(
     manifest: Path = typer.Option(
@@ -984,6 +1055,31 @@ def train_seg_head_cmd(
     resume: bool = typer.Option(False, help="Resume from latest dense-head checkpoint."),
     num_workers: int = typer.Option(0, help="DataLoader workers."),
     device: str = typer.Option("mps", help="Training device; MPS only."),
+    image_size: int = typer.Option(512, "--image-size", help="Training image size in pixels."),
+    hidden_dim: int = typer.Option(256, "--hidden-dim", help="Dense head hidden channel width."),
+    dropout: float = typer.Option(0.05, "--dropout", help="Dense head dropout."),
+    tversky_alpha: float = typer.Option(0.7, "--tversky-alpha", help="Focal Tversky false-positive weight."),
+    tversky_beta: float = typer.Option(0.3, "--tversky-beta", help="Focal Tversky false-negative weight."),
+    tversky_gamma: float = typer.Option(0.75, "--tversky-gamma", help="Focal Tversky gamma."),
+    bce_weight: float = typer.Option(1.0, "--bce-weight", help="BCE loss weight."),
+    tversky_weight: float = typer.Option(1.0, "--tversky-weight", help="Focal Tversky loss weight."),
+    cldice_weight: float = typer.Option(0.5, "--cldice-weight", help="Soft clDice loss weight."),
+    cldice_iters: int = typer.Option(5, "--cldice-iters", help="Soft skeletonization iterations."),
+    threshold_metric: ThresholdMetric = typer.Option(
+        ThresholdMetric.f05,
+        "--threshold-metric",
+        help="Validation metric used to choose threshold.",
+    ),
+    backbone_model: str | None = typer.Option(
+        None,
+        "--backbone-model",
+        help="HF backbone model id to train on (overrides active_model.json).",
+    ),
+    backbone_checkpoint: Path | None = typer.Option(
+        None,
+        "--backbone-checkpoint",
+        help="Optional fine-tuned backbone checkpoint; omit to use pretrained base weights.",
+    ),
 ) -> None:
     """Train the frozen-DINOv3 dense patch-token crack segmentation head."""
     from tarmac.crack.seg_head import train_seg_head
@@ -1002,6 +1098,19 @@ def train_seg_head_cmd(
         resume=resume,
         num_workers=num_workers,
         device=device,
+        image_size=image_size,
+        hidden_dim=hidden_dim,
+        dropout=dropout,
+        tversky_alpha=tversky_alpha,
+        tversky_beta=tversky_beta,
+        tversky_gamma=tversky_gamma,
+        bce_weight=bce_weight,
+        tversky_weight=tversky_weight,
+        cldice_weight=cldice_weight,
+        cldice_iters=cldice_iters,
+        threshold_metric=threshold_metric.value,
+        backbone_model=backbone_model,
+        backbone_checkpoint=(str(backbone_checkpoint) if backbone_checkpoint else None),
     )
     console.print(
         f"Seg head trained: best_epoch={result['best_epoch']} "
@@ -1299,6 +1408,16 @@ def analyze(
         "--crack-segmentation",
         help="Render pixel-precise crack masks and add crack geometry columns.",
     ),
+    tiled: bool = typer.Option(
+        False,
+        "--tiled/--no-tiled",
+        help="Use tiled learned crack segmentation where supported.",
+    ),
+    tile_overlap: float = typer.Option(
+        0.25,
+        "--tile-overlap",
+        help="Fractional overlap for tiled learned crack segmentation.",
+    ),
     mm_per_pixel: float | None = typer.Option(
         None,
         "--mm-per-pixel",
@@ -1312,6 +1431,14 @@ def analyze(
 ) -> None:
     """Analyze a photo, image directory, or video."""
     from tarmac.inference.analyze import analyze_path, print_summary
+
+    if tiled:
+        raise typer.BadParameter(
+            "--tiled is wired for crack-measure; analyze tiling requires deeper inference plumbing.",
+            param_hint="--tiled",
+        )
+    if not 0.0 <= tile_overlap < 1.0:
+        raise typer.BadParameter("--tile-overlap must be in [0, 1).", param_hint="--tile-overlap")
 
     summary = analyze_path(
         input_path=path,
@@ -1545,12 +1672,28 @@ def crack_measure(
     out: Path = typer.Option(Path("runs/crack_measure"), "--out", "-o", help="Output directory."),
     batch_size: int = typer.Option(32, "--batch-size", help="Sliding-window embedding batch size."),
     device: str = typer.Option("cpu", "--device", help="Inference device: cpu, mps, or auto."),
+    tiled: bool = typer.Option(
+        False,
+        "--tiled/--no-tiled",
+        help="Use tiled learned crack segmentation at original resolution.",
+    ),
+    tile_overlap: float = typer.Option(
+        0.25,
+        "--tile-overlap",
+        help="Fractional overlap for tiled learned crack segmentation.",
+    ),
 ) -> None:
     """Measure crack area, length, and width on full images."""
     import pandas as pd
     from PIL import Image
 
-    from tarmac.crack.segment import segment_cracks
+    from tarmac.crack.segment import (
+        CrackSegmentationResult,
+        measure_crack_mask,
+        render_crack_overlay,
+        segment_cracks,
+    )
+    from tarmac.crack.seg_head import predict_crack_mask
     from tarmac.embedding.embedder import HFBackboneEmbedder
     from tarmac.inference.analyze import IMAGE_EXTENSIONS, load_active_artifacts, load_crack_detector
 
@@ -1567,6 +1710,8 @@ def crack_measure(
         raise typer.BadParameter(f"Expected an image file or image directory: {path}")
     if not image_paths:
         raise typer.BadParameter(f"No images found in {path}")
+    if not 0.0 <= tile_overlap < 1.0:
+        raise typer.BadParameter("--tile-overlap must be in [0, 1).", param_hint="--tile-overlap")
 
     learned_checkpoint = Path("models/crack_seg_head.pt")
     crack_detector = None if learned_checkpoint.exists() else load_crack_detector()
@@ -1585,15 +1730,34 @@ def crack_measure(
     for index, image_path in enumerate(image_paths):
         with Image.open(image_path) as image:
             overlay = out / f"{image_path.stem}_crackseg.png"
-            result = segment_cracks(
-                image,
-                crack_head=crack_detector,
-                embedder=embedder,
-                mm_per_pixel=mm_per_pixel,
-                output_path=overlay,
-                batch_size=batch_size,
-                device_name=device,
-            )
+            if tiled and learned_checkpoint.exists():
+                rgb_image = image.convert("RGB")
+                mask, heatmap = predict_crack_mask(
+                    rgb_image,
+                    checkpoint_path=learned_checkpoint,
+                    device_name=device,
+                    tiled=True,
+                    tile_overlap=tile_overlap,
+                )
+                measurements = measure_crack_mask(mask, mm_per_pixel=mm_per_pixel)
+                overlay_path = render_crack_overlay(rgb_image, mask, measurements, overlay)
+                result = CrackSegmentationResult(
+                    mask=mask,
+                    heatmap=heatmap,
+                    measurements=measurements,
+                    overlay_path=overlay_path,
+                    segmenter="dinov3_dense_head",
+                )
+            else:
+                result = segment_cracks(
+                    image,
+                    crack_head=crack_detector,
+                    embedder=embedder,
+                    mm_per_pixel=mm_per_pixel,
+                    output_path=overlay,
+                    batch_size=batch_size,
+                    device_name=device,
+                )
         row = {
             "image_path": str(image_path),
             "filename": image_path.name,
@@ -1712,14 +1876,14 @@ def build_label_scatter_cmd(
 
     # ── Load backbone ──────────────────────────────────────────────────────────
     console.print(f"Loading backbone from {backbone} …")
-    processor = AutoImageProcessor.from_pretrained("facebook/dinov2-base")
-    model = AutoModel.from_pretrained("facebook/dinov2-base")
+    processor = AutoImageProcessor.from_pretrained(DINOV3_MODEL)
+    model = AutoModel.from_pretrained(DINOV3_MODEL)
     if backbone.exists():
         state_dict = torch.load(str(backbone), map_location="cpu", weights_only=True)
         model.load_state_dict(state_dict, strict=False)
         console.print("  fine-tuned weights loaded")
     else:
-        console.print("[yellow]  backbone not found — using base DINOv2 weights[/yellow]")
+        console.print("[yellow]  backbone not found — using base DINOv3 weights[/yellow]")
     model.eval().to(device)
 
     all_vecs: list[np.ndarray] = []

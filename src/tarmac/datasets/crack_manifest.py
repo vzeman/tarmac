@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 SEED = 42
 
 
@@ -32,10 +32,12 @@ def build_crack_manifest(
     rows.extend(_mendeley5y9_rows(raw_dir / "mendeley5y9"))
     rows.extend(_rdd2022_rows(raw_dir / "rdd2022"))
     rows.extend(_seg_pairs_binary_rows(raw_dir / "metu_crack_seg", "metu_crack_seg"))
-    rows.extend(_seg_pairs_binary_rows(raw_dir / "find_crack", "find_crack"))
+    # find_crack uses laser-scan multi-channel TIFs; excluded from photo-based manifest.
     rows.extend(_seg_pairs_binary_rows(raw_dir / "masonry_crack", "masonry_crack"))
     rows.extend(_seg_pairs_binary_rows(raw_dir / "hf_crack", "hf_crack"))
     rows.extend(_seg_pairs_binary_rows(raw_dir / "paggnet_crack", "paggnet_crack"))
+    rows.extend(_sdnet2018_rows(raw_dir / "sdnet2018"))
+    rows.extend(_seg_pairs_binary_rows(raw_dir / "deepcrack_liu", "deepcrack_liu"))
     if not rows:
         raise RuntimeError(
             f"No crack datasets found under {raw_dir}. Run `uv run tarmac download cracks-concrete-pavement` first."
@@ -185,6 +187,28 @@ def _rdd2022_rows(rdd2022_dir: Path) -> list[dict[str, object]]:
                     "has_crack": 1,
                 }
             )
+    return rows
+
+
+def _sdnet2018_rows(dataset_dir: Path) -> list[dict[str, object]]:
+    """Binary crack/no-crack rows from SDNET2018 (bridge D, wall W, pavement P)."""
+    if not dataset_dir.exists():
+        return []
+    rows: list[dict[str, object]] = []
+    for code in ("D", "W", "P"):
+        for label_dir, has_crack in (("cracked", 1), ("uncracked", 0)):
+            root = dataset_dir / code / label_dir
+            if not root.exists():
+                continue
+            for image_path in sorted(p for p in root.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS):
+                rows.append(
+                    {
+                        "image_path": str(image_path.resolve()),
+                        "source_dataset": "sdnet2018",
+                        "tile": "full",
+                        "has_crack": has_crack,
+                    }
+                )
     return rows
 
 
